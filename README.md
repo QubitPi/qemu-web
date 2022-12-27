@@ -1,5 +1,5 @@
 Deploying [qemu-web (fork)](https://github.com/QubitPi/qemu-web) to GitHub Pages
-====================================================================================================
+================================================================================
 
 [qemu-web](https://github.com/QubitPi/qemu-web) is a standard github-jekyll. Executing
 
@@ -14,6 +14,32 @@ This fork publishes qemu-web website to `gh-pages` branch under `docs/` director
 ```bash
 mv _site/ docs
 ```
+
+Syncing [this Fork](https://github.com/QubitPi/qemu-web) with [Upstream on GitLab](https://gitlab.com/qemu-project/qemu-web)
+---------------------------
+
+**First of all, I hate GitLab, A LOT**
+
+Fork syncing between GitHub and GitLab throws an error like the following:
+
+```bash
+$ git pull upstream main -v
+Looking up gitlab.com ... done.
+Connecting to gitlab.com (port xxxx) ... xxx.xxx.xxx.xxx done.
+fatal: read error: Connection reset by peer
+```
+
+I never saw this embarrassing and stupid situation, so I decided to detach this fork completely from the upstream
+(although I DO still declare this repo to be a _fork_ for clarification purpose).
+
+Code updates are checked-in to **origin/master** branch **manually** by downloading source code directly from
+[upstream](https://gitlab.com/qemu-project/qemu-web):
+
+![Error loading syncing-code.png](./syncing-code.png)
+
+Next the `gh-pages` branch will **rebase** on top of `master` branch.
+
+---
 
 QEMU Website
 ============
