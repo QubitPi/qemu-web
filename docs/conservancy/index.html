@@ -1,0 +1,141 @@
+<!DOCTYPE HTML>
+<!--
+Linear by TEMPLATED
+templated.co @templatedco
+Released for free under the Creative Commons Attribution 3.0 license (templated.co/license)
+-->
+
+
+
+
+
+<html>
+<head>
+	<title>Conservancy - QEMU</title>
+		<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+	<meta name="description" content="" />
+	<meta name="keywords" content="" />
+	<meta name="viewport" content="width=device-width">
+	<link href='https://fonts.googleapis.com/css?family=Roboto+Mono:300,400%7cRoboto:300,400,500' rel='stylesheet' type='text/css'>
+
+	<link rel="apple-touch-icon" sizes="180x180" href="../assets/favicons/apple-touch-icon.png">
+	<link rel="icon" type="image/png" sizes="32x32" href="../assets/favicons/favicon-32x32.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="../assets/favicons/favicon-16x16.png">
+	<link rel="manifest" href="../assets/favicons/manifest.json">
+	<link rel="mask-icon" href="../assets/favicons/safari-pinned-tab.svg" color="#5bbad5">
+	<meta name="msapplication-config" content="../assets/favicons/browserconfig.xml">
+	<meta name="theme-color" content="#ffffff">
+
+	<link rel="stylesheet" href="../assets/css/normalize.css" />
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.6.3/css/font-awesome.min.css" />
+	<link rel="stylesheet" href="../assets/css/skel-noscript.css" />
+	<link rel="stylesheet" href="../assets/css/style.css" />
+	<link rel="stylesheet" href="../assets/css/style-mobile.css" media="(max-width:699px)"/>
+	<link rel="stylesheet" href="../assets/css/style-desktop.css" media="(min-width:700px)" />
+	<link rel="alternate" title="QEMU Blog (Atom feed)" href="../feed.xml" type="application/atom+xml" />
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.0/jquery.min.js"></script>
+	
+
+</head>
+<body>
+
+		<!-- Nav -->
+	<nav id="nav">
+		<ul>
+			
+			<li class='home'><a href="../">Home</a>
+			</li><li ><a href="../download">Download</a>
+			</li><li ><a href="../support">Support</a>
+			</li><li ><a href="../contribute">Contribute</a>
+			</li><li ><a href="../documentation">Docs</a>
+			</li><li><a href="https://wiki.qemu.org">Wiki</a>
+			</li><li ><a href="../blog">Blog</a></li>
+		</ul>
+	</nav>
+
+<script>
+$('body').addClass('js');
+$('#nav').hide().before('<div id="titleBar"><div><button role="button" aria-pressed="false" aria-controls="nav" aria-label="Toggle navigation bar"><span class="fa fa-lg fa-bars"></span></button></div></div>');
+$('button[aria-controls="nav"]').click(function() {
+	jqNav = $('#nav');
+	if ($(this).attr('aria-pressed') == 'true') {
+		$(this).attr('aria-pressed', false);
+		$('#nav, #titleBar>div').animate(
+			{ 'margin-left': '-=80%' },
+			{ 'duration': 400 });
+		jqNav.promise().done(function() { jqNav.hide().css('margin-left', 0); });
+	} else {
+		$(this).attr('aria-pressed', true);
+		jqNav.css('margin-left', '-80%').show();
+		$('#nav, #titleBar>div').animate(
+			{ 'margin-left': '+=80%' },
+			{ 'duration': 400 });
+	}
+});
+</script>
+
+	<div id="main">
+		<div class="container">
+			<header>
+				<h1>Conservancy</h1>
+			</header>
+			<p>QEMU is a member of <a href="https://sfconservancy.org/">Software Freedom Conservancy</a>,
+a not-for-profit organization that provides legal and administrative assistance
+to open source projects.</p>
+
+<p>The Software Freedom Conservancy holds assets on behalf of the
+project, including domain names and project funds/donations.</p>
+
+<p>QEMU interacts with Conservancy through a Leadership Committee,
+currently composed of the following members:</p>
+
+<ul>
+  <li>Alex Bennée</li>
+  <li>Paolo Bonzini</li>
+  <li>Andreas Färber</li>
+  <li>Alexander Graf</li>
+  <li>Stefan Hajnoczi</li>
+  <li>Peter Maydell</li>
+</ul>
+
+<p>The committee votes via simple majority. There cannot be more than one
+third of the members (currently two) employed by the same entity at once.</p>
+
+<p>If you would like to raise an issue to the Leadership Committee, please
+email <a href="mailto:qemu-devel&#x0040;nongnu.org">qemu-devel@nongnu.org</a>
+and CC at least one of the members so they can bring the issue forward.
+For private emails you can send an email to
+<a href="mailto:qemu&#x0040;sfconservancy.org">qemu@sfconservancy.org</a>, a
+private list that all members of the leadership committee are subscribed to.</p>
+
+		</div>
+	</div>
+	
+	<div id="footer">
+	<div id="external-links">
+		<ul class="style">
+			<li><a href="http://qemu-advent-calendar.org">Advent calendar</a></li>
+			<li><a href="https://planet.virt-tools.org/">Blog planet</a></li>
+			<li><a href="https://www.linux-kvm.org/">KVM</a></li>
+			<li><a href="http://libguestfs.org/">Libguestfs</a></li>
+			<li><a href="https://libvirt.org/">Libvirt</a></li>
+			<li><a href="https://xenproject.org">Xen</a></li>
+		</ul>
+	</div>
+	<div id="edit-page">
+		<a href="https://gitlab.com/qemu-project/qemu-web/-/blob/master/conservancy.md">page source</a>
+	</div>
+	<div id="conservancy">
+		QEMU is a member of <a href="../conservancy/">Software Freedom Conservancy</a>
+	</div>
+	<div id="sponsors">
+		QEMU has <a href="../sponsors/">sponsors</a>
+	</div>
+	<div id="licenses">
+		<a href="../license.html">Website licenses</a>
+	</div>
+</div>
+
+
+</body>
+</html>

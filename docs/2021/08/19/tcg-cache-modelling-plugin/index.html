@@ -1,0 +1,907 @@
+<!DOCTYPE HTML>
+<!--
+Linear by TEMPLATED
+templated.co @templatedco
+Released for free under the Creative Commons Attribution 3.0 license (templated.co/license)
+  -->
+
+
+
+
+
+<html>
+<head>
+	<title>Cache Modelling TCG Plugin - QEMU</title>
+		<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+	<meta name="description" content="" />
+	<meta name="keywords" content="" />
+	<meta name="viewport" content="width=device-width">
+	<link href='https://fonts.googleapis.com/css?family=Roboto+Mono:300,400%7cRoboto:300,400,500' rel='stylesheet' type='text/css'>
+
+	<link rel="apple-touch-icon" sizes="180x180" href="../../../../assets/favicons/apple-touch-icon.png">
+	<link rel="icon" type="image/png" sizes="32x32" href="../../../../assets/favicons/favicon-32x32.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="../../../../assets/favicons/favicon-16x16.png">
+	<link rel="manifest" href="../../../../assets/favicons/manifest.json">
+	<link rel="mask-icon" href="../../../../assets/favicons/safari-pinned-tab.svg" color="#5bbad5">
+	<meta name="msapplication-config" content="../../../../assets/favicons/browserconfig.xml">
+	<meta name="theme-color" content="#ffffff">
+
+	<link rel="stylesheet" href="../../../../assets/css/normalize.css" />
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.6.3/css/font-awesome.min.css" />
+	<link rel="stylesheet" href="../../../../assets/css/skel-noscript.css" />
+	<link rel="stylesheet" href="../../../../assets/css/style.css" />
+	<link rel="stylesheet" href="../../../../assets/css/style-mobile.css" media="(max-width:699px)"/>
+	<link rel="stylesheet" href="../../../../assets/css/style-desktop.css" media="(min-width:700px)" />
+	<link rel="alternate" title="QEMU Blog (Atom feed)" href="../../../../feed.xml" type="application/atom+xml" />
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.0/jquery.min.js"></script>
+	
+
+</head>
+<body>
+
+		<!-- Nav -->
+	<nav id="nav">
+		<ul>
+			
+			<li class='home'><a href="../../../../">Home</a>
+			</li><li ><a href="../../../../download">Download</a>
+			</li><li ><a href="../../../../support">Support</a>
+			</li><li ><a href="../../../../contribute">Contribute</a>
+			</li><li ><a href="../../../../documentation">Docs</a>
+			</li><li><a href="https://wiki.qemu.org">Wiki</a>
+			</li><li ><a href="../../../../blog">Blog</a></li>
+		</ul>
+	</nav>
+
+<script>
+$('body').addClass('js');
+$('#nav').hide().before('<div id="titleBar"><div><button role="button" aria-pressed="false" aria-controls="nav" aria-label="Toggle navigation bar"><span class="fa fa-lg fa-bars"></span></button></div></div>');
+$('button[aria-controls="nav"]').click(function() {
+	jqNav = $('#nav');
+	if ($(this).attr('aria-pressed') == 'true') {
+		$(this).attr('aria-pressed', false);
+		$('#nav, #titleBar>div').animate(
+			{ 'margin-left': '-=80%' },
+			{ 'duration': 400 });
+		jqNav.promise().done(function() { jqNav.hide().css('margin-left', 0); });
+	} else {
+		$(this).attr('aria-pressed', true);
+		jqNav.css('margin-left', '-80%').show();
+		$('#nav, #titleBar>div').animate(
+			{ 'margin-left': '+=80%' },
+			{ 'duration': 400 });
+	}
+});
+</script>
+
+	<div id="main">
+		<div class="container">
+			<!-- Main -->
+	<section>
+		<header>
+			<h1>Cache Modelling TCG Plugin</h1>
+			<div class="posted">19 Aug 2021 &mdash; by Mahmoud Mandour</div>
+		</header>
+		<p><a href="https://en.wikipedia.org/wiki/CPU_cache">Caches</a> are a key way that enables
+modern CPUs to keep running at full speed by avoiding the need to fetch data
+and instructions from the comparatively slow system memory. As a result
+understanding cache behaviour is a key part of performance optimisation.</p>
+
+<p>TCG plugins provide means to instrument generated code for both user-mode and
+full system emulation. This includes the ability to intercept every memory
+access and instruction execution. This post introduces a new TCG plugin that’s
+used to simulate configurable L1 separate instruction cache and data cache.</p>
+
+<p>While different microarchitectures often have different approaches at the very
+low level, the core concepts of caching are universal. As QEMU is not a
+microarchitectural emulator we model an ideal caching system with a few simple
+parameters. By doing so, we can adequately simulate the behaviour of L1 private
+(per-core) caches.</p>
+
+<h2 id="overview">Overview</h2>
+
+<p>The plugin simulates how L1 user-configured caches would behave when given a
+working set defined by a program in user-mode, or system-wide working set.
+Subsequently, it logs performance statistics along with the most N
+cache-thrashing instructions.</p>
+
+<h3 id="configurability">Configurability</h3>
+
+<p>The plugin is configurable in terms of:</p>
+
+<ul>
+  <li>icache size parameters: <code class="highlighter-rouge">icachesize</code>, <code class="highlighter-rouge">iblksize</code>, <code class="highlighter-rouge">iassoc</code>, All of which take
+a numeric value</li>
+  <li>dcache size parameters: <code class="highlighter-rouge">dcachesize</code>, <code class="highlighter-rouge">dblksize</code>, <code class="highlighter-rouge">dassoc</code>. All of which take
+a numeric value</li>
+  <li>Eviction policy: <code class="highlighter-rouge">evict=lru|rand|fifo</code></li>
+  <li>How many top-most thrashing instructions to log: <code class="highlighter-rouge">limit=TOP_N</code></li>
+  <li>How many core caches to keep track of: <code class="highlighter-rouge">cores=N_CORES</code></li>
+</ul>
+
+<h3 id="multicore-caching">Multicore caching</h3>
+
+<p>Multicore caching is achieved by having independent L1 caches for each available
+core.</p>
+
+<p>In <strong>full-system emulation</strong>, the number of available vCPUs is known to the
+plugin at plugin installation time, so separate caches are maintained for those.</p>
+
+<p>In <strong>user-space emulation</strong>, the index of the vCPU initiating memory access
+monotonically increases and is limited with however much the kernel allows
+creating. The approach used is that we allocate a static number of caches, and
+fit all memory accesses into those cores. This approximation is sufficiently
+similar to real systems since having more threads than cores will result in
+interleaving those threads between the available cores so they might thrash each
+other anyway.</p>
+
+<h2 id="design-and-implementation">Design and implementation</h2>
+
+<h3 id="general-structure">General structure</h3>
+
+<p>A generic cache data structure, <code class="highlighter-rouge">Cache</code>, is used to model either an icache or
+dcache. For each known core, the plugin maintains an icache and a dcache. On a
+memory access coming from a core, the corresponding cache is interrogated.</p>
+
+<p>Each cache has a number of cache sets that are used to store the actual cached
+locations alongside metadata that backs eviction algorithms. The structure of a
+cache with <code class="highlighter-rouge">n</code> sets, and <code class="highlighter-rouge">m</code> blocks per sets is summarized in the following
+figure:</p>
+
+<p><img src="/screenshots/2021-06-17-cache-structure.png" alt="cache structure" /></p>
+
+<h3 id="eviction-algorithms">Eviction algorithms</h3>
+
+<p>The plugin supports three eviction algorithms:</p>
+
+<ul>
+  <li>Random eviction</li>
+  <li>Least recently used (LRU)</li>
+  <li>FIFO eviction</li>
+</ul>
+
+<h4 id="random-eviction">Random eviction</h4>
+
+<p>On a cache miss that requires eviction, a randomly chosen block is evicted to
+make room for the newly-fetched block.</p>
+
+<p>Using random eviction effectively requires no metadata for each set.</p>
+
+<h4 id="least-recently-used-lru">Least recently used (LRU)</h4>
+
+<p>For each set, a generation number is maintained that is incremented on each
+memory access and. The current generation number is assigned to the block
+currently being accessed. On a cache miss, the block with the least generation
+number is evicted.</p>
+
+<h4 id="fifo-eviction">FIFO eviction</h4>
+
+<p>A FIFO queue instance is maintained for each set. On a cache miss, the evicted
+block is the first-in block, and the newly-fetched block is enqueued as the
+last-in block.</p>
+
+<h2 id="usage">Usage</h2>
+
+<p>Now a simple example usage of the plugin is demonstrated by running a program
+that does matrix multiplication, and how the plugin helps identify code that
+thrashes the cache.</p>
+
+<p>A program, <code class="highlighter-rouge">test_mm</code> uses the following function to carry out matrix
+multiplication:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>void mm(int n, int m1[n][n], int m2[n][n], int res[n][n])
+{
+    for (int i = 0; i &lt; n; i++) {
+        for (int j = 0; j &lt; n; j++) {
+            int sum = 0;
+            for (int k = 0; k &lt; n; k++) {
+                int op1 = m1[i][k];
+                int op2 = m2[k][j];
+                sum += op1 * op2;
+            }
+            res[i][j] = sum;
+        }
+    }
+}
+</code></pre></div></div>
+
+<p>Running <code class="highlighter-rouge">mm_test</code> inside QEMU using the following command:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>./qemu-x86_64 $(QEMU_ARGS) \
+  -plugin ./contrib/plugins/libcache.so,dcachesize=8192,dassoc=4,dblksize=64,\
+      icachesize=8192,iassoc=4,iblksize=64 \
+  -d plugin \
+  -D matmul.log \
+  ./mm_test
+</code></pre></div></div>
+
+<p>The preceding command will run QEMU and attach the plugin with the following
+configuration:</p>
+
+<ul>
+  <li>dcache: cache size = 8KBs, associativity = 4, block size = 64B.</li>
+  <li>icache: cache size = 8KBs, associativity = 4, block size = 64B.</li>
+  <li>Default eviction policy is LRU (used for both caches).</li>
+  <li>Default number of cores is 1.</li>
+</ul>
+
+<p>The following data is logged in <code class="highlighter-rouge">matmul.log</code>:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>core #, data accesses, data misses, dmiss rate, insn accesses, insn misses, imiss rate
+0       4908419        274545          5.5933%  8002457        1005            0.0126%
+
+address, data misses, instruction
+0x4000001244 (mm), 262138, movl (%rdi, %rsi, 4), %esi
+0x400000121c (mm), 5258, movl (%rdi, %rsi, 4), %esi
+0x4000001286 (mm), 4096, movl %edi, (%r8, %rsi, 4)
+0x400000199c (main), 257, movl %edx, (%rax, %rcx, 4)
+
+...
+</code></pre></div></div>
+
+<p>We can observe two things from the logs:</p>
+
+<ul>
+  <li>The most cache-thrashing instructions belong to a symbol called <code class="highlighter-rouge">mm</code>, which
+  happens to be the matrix multiplication function.</li>
+  <li>Some array-indexing instructions are generating the greatest share of data
+  misses.</li>
+</ul>
+
+<p><code class="highlighter-rouge">test_mm</code> does a bunch of other operations other than matrix multiplication.
+However, Using the plugin data, we can narrow our investigation space to <code class="highlighter-rouge">mm</code>,
+which happens to be generating about 98% of the overall number of misses.</p>
+
+<p>Now we need to find out why is the instruction at address <code class="highlighter-rouge">0x4000001224</code>
+thrashing the cache. Looking at the disassembly of the program, using
+<code class="highlighter-rouge">objdump -Sl test_mm</code>:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>/path/to/test_mm.c:11 (discriminator 3)
+                int op2 = m2[k][j];  &lt;- The line of code we're interested in
+    1202:   8b 75 c0               mov    -0x40(%rbp),%esi
+    1205:   48 63 fe               movslq %esi,%rdi
+    1208:   48 63 f2               movslq %edx,%rsi
+    120b:   48 0f af f7            imul   %rdi,%rsi
+    120f:   48 8d 3c b5 00 00 00   lea    0x0(,%rsi,4),%rdi
+    1216:   00
+    1217:   48 8b 75 a8            mov    -0x58(%rbp),%rsi
+    121b:   48 01 f7               add    %rsi,%rdi
+    121e:   8b 75 c8               mov    -0x38(%rbp),%esi
+    1221:   48 63 f6               movslq %esi,%rsi
+    1224:   8b 34 b7               mov    (%rdi,%rsi,4),%esi
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+    1227:   89 75 d4               mov    %esi,-0x2c(%rbp)
+</code></pre></div></div>
+
+<p>It can be seen that the most problematic instruction is associated with loading
+<code class="highlighter-rouge">m2[k][j]</code>. This happens because we’re traversing <code class="highlighter-rouge">m2</code> in a column-wise order.
+So if the matrix <code class="highlighter-rouge">m2</code> is larger than the data cache, we end up with fetching
+blocks that we only use one integer from and not use again before getting
+evicted.</p>
+
+<p>A simple solution to this problem is to <a href="https://en.wikipedia.org/wiki/Transpose">transpose</a>
+the second matrix and access it in a row-wise order.</p>
+
+<p>By editing the program to transpose <code class="highlighter-rouge">m2</code> before calling <code class="highlighter-rouge">mm</code> and run it inside
+QEMU with the plugin attached and using the same configuration as previously,
+the following data is logged in <code class="highlighter-rouge">matmul.log</code>:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>core #, data accesses, data misses, dmiss rate, insn accesses, insn misses, imiss rate
+0       4998994        24235           0.4848%  8191937        1009            0.0123%
+
+address, data misses, instruction
+0x4000001244 (mm), 16447, movl (%rdi, %rsi, 4), %esi
+0x4000001359 (tran), 3994, movl (%rcx, %rdx, 4), %ecx
+0x4000001aa7 (main), 257, movl %edx, (%rax, %rcx, 4)
+0x4000001a72 (main), 257, movl %ecx, (%rax, %rdx, 4)
+
+...
+</code></pre></div></div>
+
+<p>It can be seen that a minor number of misses is generated at transposition time
+in <code class="highlighter-rouge">tran</code>. The rest of the matrix multiplication is carried out using the same
+procedure but to multiply <code class="highlighter-rouge">m1[i][k]</code> by <code class="highlighter-rouge">m2[j][k]</code>. So <code class="highlighter-rouge">m2</code> is traversed
+row-wise and hence utilized cache space much more optimally.</p>
+
+<h3 id="multi-core-caching">Multi-core caching</h3>
+
+<p>The plugin accepts a <code class="highlighter-rouge">cores=N_CORES</code> argument that represents the number of
+cores that the plugin must keep track of. Memory accesses generated by excess
+threads will be served through the available core caches. The model is an
+approximation, as described, and is most-akin to idealized behaviour when the
+number of threads generated by the program is less than cores available,
+otherwise inter-thread thrashing will invariably occur.</p>
+
+<p>An example usage of the plugin using the <code class="highlighter-rouge">cores</code> argument to use 4 per-core
+caches against a multithreaded program:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>./qemu-x86_64 $(QEMU_ARGS) \
+    -plugin ./contrib/plugins/libcache.so,cores=4 \
+    -d plugin \
+    -D logfile \
+    ./threaded_prog
+</code></pre></div></div>
+
+<p>This reports out the following:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>core #, data accesses, data misses, dmiss rate, insn accesses, insn misses, imiss rate
+0       76739          4195          5.411666%  242616         1555            0.6409%
+1       29029          932           3.211106%  70939          988             1.3927%
+2       6218           285           4.511835%  15702          382             2.4328%
+3       6608           297           4.411946%  16342          384             2.3498%
+sum     118594         5709          4.811139%  345599         3309            0.9575%
+
+...
+</code></pre></div></div>
+
+<h2 id="conclusion">Conclusion</h2>
+
+<p>By emulating simple configurations of icache and dcache we can gain insights
+into how a working set is utilizing cache memory. Simplicity is sought and L1
+cache is emphasized since its under-utilization can be severe to the overall
+system performance.</p>
+
+<p>This plugin is made as part of my GSoC participation for the year 2021 under the
+mentorship of Alex Bennée.</p>
+
+<p>List of posted patches related to the plugin:</p>
+
+<ul>
+  <li><a href="https://patchew.org/QEMU/20210623125458.450462-1-ma.mandourr@gmail.com/">[PATCH v4 0/5] plugins: New TCG plugin for cache modelling</a></li>
+  <li><a href="https://patchew.org/QEMU/20210623125458.450462-1-ma.mandourr@gmail.com/20210623125458.450462-2-ma.mandourr@gmail.com/">[PATCH v4 1/5] plugins: Added a new cache modelling plugin</a></li>
+  <li><a href="https://patchew.org/QEMU/20210623125458.450462-1-ma.mandourr@gmail.com/20210623125458.450462-3-ma.mandourr@gmail.com/">[PATCH v4 2/5] plugins/cache: Enable cache parameterization</a></li>
+  <li><a href="https://patchew.org/QEMU/20210623125458.450462-1-ma.mandourr@gmail.com/20210623125458.450462-4-ma.mandourr@gmail.com/">[PATCH v4 3/5] plugins/cache: Added FIFO and LRU eviction policies</a></li>
+  <li><a href="https://patchew.org/QEMU/20210623125458.450462-1-ma.mandourr@gmail.com/20210623125458.450462-5-ma.mandourr@gmail.com/#20210628053808.17422-1-ma.mandourr@gmail.com">[PATCH v4 4/5] docs/devel: Added cache plugin to the plugins docs</a></li>
+  <li><a href="https://patchew.org/QEMU/20210623125458.450462-1-ma.mandourr@gmail.com/20210623125458.450462-6-ma.mandourr@gmail.com/#20210707092756.414242-1-ma.mandourr@gmail.com">[PATCH v5] MAINTAINERS: Added myself as a reviewer for TCG Plugins</a></li>
+  <li><a href="https://patchew.org/QEMU/20210714172151.8494-1-ma.mandourr@gmail.com/20210714172151.8494-2-ma.mandourr@gmail.com/">[PATCH 1/6] plugins/cache: Fixed a bug with destroying FIFO metadata</a></li>
+  <li><a href="https://patchew.org/QEMU/20210714172151.8494-1-ma.mandourr@gmail.com/20210714172151.8494-3-ma.mandourr@gmail.com/">[PATCH 2/6] plugins/cache: limited the scope of a mutex lock</a></li>
+  <li><a href="https://patchew.org/QEMU/20210714172151.8494-1-ma.mandourr@gmail.com/20210714172151.8494-7-ma.mandourr@gmail.com/">[PATCH 6/6] plugins/cache: Fixed “function decl. is not a prototype” warnings</a></li>
+  <li><a href="https://patchew.org/QEMU/20210803151301.123581-1-ma.mandourr@gmail.com/">[PATCH v5 0/2] plugins/cache: multicore cache modelling</a></li>
+  <li><a href="https://patchew.org/QEMU/20210803151301.123581-1-ma.mandourr@gmail.com/20210803151301.123581-3-ma.mandourr@gmail.com/">[PATCH v5 1/2] plugins/cache: supported multicore cache modelling</a></li>
+</ul>
+
+<p>The first series, (plugins: New TCG plugin for cache modelling), along with the
+bug fixes patches are already merged to the QEMU main tree, the remaining
+patches are merged to the <a href="https://github.com/stsquad/qemu/tree/plugins/next">plugins/next</a>
+tree, awaiting merging to the main tree, since we’re in a release cycle as of
+the time of posting.</p>
+
+		<ul class="category">
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/tcg-plugins/index.html">TCG plugins</a></li>
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/gsoc/index.html">GSOC</a></li>
+		
+		</ul>
+	</section>
+
+		</div>
+	</div>
+	
+	
+<!-- Sidebar -->
+<div id="sidebar">
+<div class="container">
+	<section>
+		<header>
+			<h1>Recent Posts</h1>
+		</header>
+		<ul class="style">
+		
+			<li>
+				<a href="../../../../2022/12/15/qemu-7-2-0/">QEMU version 7.2.0 released</a><br/>
+				<span class="posted">15 Dec 2022</span>
+			</li>
+		
+			<li>
+				<a href="../../../../2022/11/17/zoned-emulation/">Introduction to Zoned Storage Emulation</a><br/>
+				<span class="posted">17 Nov 2022</span>
+			</li>
+		
+		</ul>
+	</section>
+
+
+	<section>
+		<header>
+			<h1>Archives</h1>
+		</header>
+		<ul class="style">
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/12/">December 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/11/">November 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/08/">August 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/04/">April 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/03/">March 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/02/">February 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/12/">December 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/08/">August 2021 (3)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/04/">April 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/03/">March 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/02/">February 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/01/">January 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/12/">December 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/11/">November 2020 (2)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/09/">September 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/08/">August 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/07/">July 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/04/">April 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/02/">February 2020 (2)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/12/">December 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/11/">November 2019 (3)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/08/">August 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/05/">May 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/04/">April 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/02/">February 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/01/">January 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/12/">December 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/08/">August 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/06/">June 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/05/">May 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/04/">April 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/02/">February 2018 (3)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/01/">January 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/11/">November 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/10/">October 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/09/">September 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/08/">August 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/05/">May 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/03/">March 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/02/">February 2017 (2)</a></li>
+		</ul>
+	</section>
+</div>
+</div>
+
+	<div id="footer">
+	<div id="external-links">
+		<ul class="style">
+			<li><a href="http://qemu-advent-calendar.org">Advent calendar</a></li>
+			<li><a href="https://planet.virt-tools.org/">Blog planet</a></li>
+			<li><a href="https://www.linux-kvm.org/">KVM</a></li>
+			<li><a href="http://libguestfs.org/">Libguestfs</a></li>
+			<li><a href="https://libvirt.org/">Libvirt</a></li>
+			<li><a href="https://xenproject.org">Xen</a></li>
+		</ul>
+	</div>
+	<div id="edit-page">
+		<a href="https://gitlab.com/qemu-project/qemu-web/-/blob/master/_posts/2021-08-19-tcg-cache-modelling-plugin.md">page source</a>
+	</div>
+	<div id="conservancy">
+		QEMU is a member of <a href="../../../../conservancy/">Software Freedom Conservancy</a>
+	</div>
+	<div id="sponsors">
+		QEMU has <a href="../../../../sponsors/">sponsors</a>
+	</div>
+	<div id="licenses">
+		<a href="../../../../license.html">Website licenses</a>
+	</div>
+</div>
+
+
+</body>
+</html>

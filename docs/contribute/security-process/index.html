@@ -1,0 +1,315 @@
+<!DOCTYPE HTML>
+<!--
+Linear by TEMPLATED
+templated.co @templatedco
+Released for free under the Creative Commons Attribution 3.0 license (templated.co/license)
+-->
+
+
+
+
+
+<html>
+<head>
+	<title>Security Process - QEMU</title>
+		<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+	<meta name="description" content="" />
+	<meta name="keywords" content="" />
+	<meta name="viewport" content="width=device-width">
+	<link href='https://fonts.googleapis.com/css?family=Roboto+Mono:300,400%7cRoboto:300,400,500' rel='stylesheet' type='text/css'>
+
+	<link rel="apple-touch-icon" sizes="180x180" href="../../assets/favicons/apple-touch-icon.png">
+	<link rel="icon" type="image/png" sizes="32x32" href="../../assets/favicons/favicon-32x32.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="../../assets/favicons/favicon-16x16.png">
+	<link rel="manifest" href="../../assets/favicons/manifest.json">
+	<link rel="mask-icon" href="../../assets/favicons/safari-pinned-tab.svg" color="#5bbad5">
+	<meta name="msapplication-config" content="../../assets/favicons/browserconfig.xml">
+	<meta name="theme-color" content="#ffffff">
+
+	<link rel="stylesheet" href="../../assets/css/normalize.css" />
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.6.3/css/font-awesome.min.css" />
+	<link rel="stylesheet" href="../../assets/css/skel-noscript.css" />
+	<link rel="stylesheet" href="../../assets/css/style.css" />
+	<link rel="stylesheet" href="../../assets/css/style-mobile.css" media="(max-width:699px)"/>
+	<link rel="stylesheet" href="../../assets/css/style-desktop.css" media="(min-width:700px)" />
+	<link rel="alternate" title="QEMU Blog (Atom feed)" href="../../feed.xml" type="application/atom+xml" />
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.0/jquery.min.js"></script>
+	
+
+</head>
+<body>
+
+		<!-- Nav -->
+	<nav id="nav">
+		<ul>
+			
+			<li class='home'><a href="../../">Home</a>
+			</li><li ><a href="../../download">Download</a>
+			</li><li ><a href="../../support">Support</a>
+			</li><li class='current'><a href="../../contribute">Contribute</a>
+			</li><li ><a href="../../documentation">Docs</a>
+			</li><li><a href="https://wiki.qemu.org">Wiki</a>
+			</li><li ><a href="../../blog">Blog</a></li>
+		</ul>
+	</nav>
+
+<script>
+$('body').addClass('js');
+$('#nav').hide().before('<div id="titleBar"><div><button role="button" aria-pressed="false" aria-controls="nav" aria-label="Toggle navigation bar"><span class="fa fa-lg fa-bars"></span></button></div></div>');
+$('button[aria-controls="nav"]').click(function() {
+	jqNav = $('#nav');
+	if ($(this).attr('aria-pressed') == 'true') {
+		$(this).attr('aria-pressed', false);
+		$('#nav, #titleBar>div').animate(
+			{ 'margin-left': '-=80%' },
+			{ 'duration': 400 });
+		jqNav.promise().done(function() { jqNav.hide().css('margin-left', 0); });
+	} else {
+		$(this).attr('aria-pressed', true);
+		jqNav.css('margin-left', '-80%').show();
+		$('#nav, #titleBar>div').animate(
+			{ 'margin-left': '+=80%' },
+			{ 'duration': 400 });
+	}
+});
+</script>
+
+	<div id="main">
+		<div class="container">
+			<header>
+				<h1>Security Process</h1>
+			</header>
+			<p>Please report any suspected security issue in QEMU to the security mailing
+list at:</p>
+
+<ul>
+  <li><a href="https://lists.nongnu.org/mailman/listinfo/qemu-security">&lt;qemu-security@nongnu.org&gt;</a></li>
+</ul>
+
+<p>To report an issue via <a href="https://gnupg.org/">GPG</a> encrypted email, please send
+it to the Red Hat Product Security team at:</p>
+
+<ul>
+  <li><a href="https://access.redhat.com/security/team/contact/#contact">&lt;secalert@redhat.com&gt;</a></li>
+</ul>
+
+<p><strong>Note:</strong> after the triage, encrypted issue details shall be sent to the upstream
+‘qemu-security’ mailing list for archival purposes.</p>
+
+<h2 id="how-to-report-an-issue">How to report an issue:</h2>
+
+<ul>
+  <li>Please include as many details as possible in the issue report.
+Ex:
+    <ul>
+      <li>QEMU version, upstream commit/tag</li>
+      <li>Host &amp; Guest architecture x86/Arm/PPC, 32/64 bit etc.</li>
+      <li>Affected code area/snippets</li>
+      <li>Stack traces, crash details</li>
+      <li>Malicious inputs/reproducer steps etc.</li>
+      <li>Any configurations/settings required to trigger the issue.</li>
+    </ul>
+  </li>
+  <li>
+    <p>Please share the QEMU command line used to invoke a guest VM.</p>
+  </li>
+  <li>Please specify whom to acknowledge for reporting this issue.</li>
+</ul>
+
+<h2 id="how-we-respond">How we respond:</h2>
+
+<ul>
+  <li>
+    <p>Process of handling security issues comprises following steps:</p>
+
+    <p>0) <strong>Acknowledge:</strong></p>
+    <ul>
+      <li>A non-automated response email is sent to the reporter(s) to acknowledge
+the reception of the report. (<em>60 day’s counter starts here</em>)</li>
+    </ul>
+
+    <p>1) <strong>Triage:</strong></p>
+    <ul>
+      <li>Examine the issue details and confirm whether the issue is genuine</li>
+      <li>Validate if it can be misused for malicious purposes</li>
+      <li>Determine its worst case impact and severity
+[Low/Moderate/Important/Critical]</li>
+    </ul>
+
+    <p>2) <strong>Response:</strong></p>
+    <ul>
+      <li>Negotiate embargo timeline (if required, depending on severity)</li>
+      <li>Request a <a href="https://cveform.mitre.org/">CVE</a> and open an upstream
+<a href="https://www.qemu.org/contribute/report-a-bug/">bug</a></li>
+      <li>Create an upstream fix patch annotated with
+        <ul>
+          <li>CVE-ID</li>
+          <li>Link to an upstream bugzilla</li>
+          <li>Reported-by, Tested-by etc. tags</li>
+        </ul>
+      </li>
+      <li>Once the patch is merged, close the upstream bug with a link to the
+commit
+        <ul>
+          <li>Fixed in: &lt;commit hash/link&gt;</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>
+    <p>Above security lists are operated by select analysts, maintainers and/or
+representatives from downstream communities.</p>
+  </li>
+  <li>
+    <p>List members follow a <strong>responsible disclosure</strong> policy. Any non-public
+information you share about security issues, is kept confidential within
+members of the QEMU security team and a minimal supporting staff in their
+affiliated companies. Such information will not be disclosed to third party
+organisations/individuals without prior permission from the reporter(s).</p>
+  </li>
+  <li>
+    <p>We aim to process security issues within maximum of <strong>60 days</strong>. That is not
+to say that issues will remain private for 60 days, nope. After the triaging
+step above</p>
+    <ul>
+      <li>If severity of the issue is sufficiently low, an upstream public bug
+will be created immediately.</li>
+      <li>If severity of the issue requires co-ordinated disclosure at a future
+date, then the embargo process below is followed, and upstream bug will
+be opened at the end of the embargo period.</li>
+    </ul>
+
+    <p>This will allow upstream contributors to create, test and track fix patch(es).</p>
+  </li>
+</ul>
+
+<h3 id="publication-embargo">Publication embargo</h3>
+
+<ul>
+  <li>
+    <p>If a security issue is reported that is not already public and its severity
+requires coordinated disclosure, then an embargo date will be set and
+communicated to the reporter(s).</p>
+  </li>
+  <li>
+    <p>Embargo periods will be negotiated by mutual agreement between reporter(s),
+members of the security list and other relevant parties to the problem.
+The preferred embargo period is upto <a href="https://oss-security.openwall.org/wiki/mailing-lists/distros">2
+weeks</a>.
+However, longer embargoes may be negotiated if the severity of the issue
+requires it.</p>
+  </li>
+  <li>
+    <p>Members of the security list agree not to publicly disclose any details of
+an embargoed security issue until its embargo date expires.</p>
+  </li>
+</ul>
+
+<h3 id="cve-allocation">CVE allocation</h3>
+
+<p>Each security issue is assigned a <a href="https://cveform.mitre.org/">CVE</a> number.
+The CVE number is allocated by one of the vendor security engineers on the
+security list.</p>
+
+<h2 id="when-to-contact-the-qemu-security-list">When to contact the QEMU Security List</h2>
+
+<p>You should contact the Security List if:</p>
+<ul>
+  <li>You think there may be a security vulnerability in QEMU.</li>
+  <li>You are unsure about how a known vulnerability affects QEMU.</li>
+  <li>You can contact us in English. We are unable to respond in other languages.</li>
+</ul>
+
+<h2 id="when-not-to-contact-the-qemu-security-list">When <em>not</em> to contact the QEMU Security List</h2>
+<ul>
+  <li>You need assistance in a language other than English.</li>
+  <li>You require technical assistance (for example, “how do I configure QEMU?”).</li>
+  <li>You need help upgrading QEMU due to security alerts.</li>
+  <li>Your issue is not security related.</li>
+</ul>
+
+<h2 id="how-impact-and-severity-of-a-bug-is-decided">How impact and severity of a bug is decided</h2>
+
+<p><strong>Security criterion:</strong>
+    -&gt; <a href="https://www.qemu.org/docs/master/system/security.html">https://www.qemu.org/docs/master/system/security.html</a></p>
+
+<p>All security issues in QEMU are not equal. Based on the parts of the QEMU
+sources wherein the bug is found, its impact and severity could vary.</p>
+
+<p>In particular, QEMU is used in many different scenarios; some of them assume
+that the guest is trusted, some of them don’t. General considerations to triage
+QEMU issues and decide whether a configuration is security sensitive include:</p>
+
+<ul>
+  <li>Is there any feasible way for a malicious party to exploit this flaw and
+cause real damage? (e.g. from a guest or via downloadable images)</li>
+  <li>Does the flaw require access to the management interface? Would the
+management interface be accessible in the scenario where the flaw could cause
+real damage?</li>
+  <li>Is QEMU used in conjunction with a hypervisor (as opposed to TCG binary
+translation)?</li>
+  <li>Is QEMU used to offer virtualised production services, as opposed to usage
+as a development platform?</li>
+</ul>
+
+<p>Whenever some or all of these questions have negative answers, what appears to
+be a major security flaw might be considered of low severity because it could
+only be exercised in use cases where QEMU and everything interacting with it is
+trusted.</p>
+
+<p>For example, consider upstream commit <a href="https://gitlab.com/qemu-project/qemu/-/commit/9201bb9">9201bb9 “sdhci.c: Limit the maximum
+block size”</a>, an of out of
+bounds (OOB) memory access (ie. buffer overflow) issue that was found and fixed
+in the SD Host Controller emulation (hw/sd/sdhci.c).</p>
+
+<p>On the surface, this bug appears to be a genuine security flaw, with potentially
+severe implications. But digging further down, there are only two ways to use
+SD Host Controller emulation, one is via ‘sdhci-pci’ interface and the other
+is via ‘generic-sdhci’ interface.</p>
+
+<p>Of these two, the ‘sdhci-pci’ interface had actually been disabled by default
+in the upstream QEMU releases (commit <a href="https://gitlab.com/qemu-project/qemu/-/commit/1910913">1910913 “sdhci: Make device “sdhci-pci”
+unavailable with -device”</a>
+at the time the flaw was reported; therefore, guests could not possibly use
+‘sdhci-pci’ for any purpose.</p>
+
+<p>The ‘generic-sdhci’ interface, instead, had only one user in ‘Xilinx Zynq
+Baseboard emulation’ (hw/arm/xilinx_zynq.c). Xilinx Zynq is a programmable
+systems on chip (SoC) device. While QEMU does emulate this device, in practice
+it is used to facilitate cross-platform developmental efforts, i.e. QEMU is
+used to write programs for the SoC device. In such developer environments, it
+is generally assumed that the guest is trusted.</p>
+
+<p>And thus, this buffer overflow turned out to be a security non-issue.</p>
+
+		</div>
+	</div>
+	
+	<div id="footer">
+	<div id="external-links">
+		<ul class="style">
+			<li><a href="http://qemu-advent-calendar.org">Advent calendar</a></li>
+			<li><a href="https://planet.virt-tools.org/">Blog planet</a></li>
+			<li><a href="https://www.linux-kvm.org/">KVM</a></li>
+			<li><a href="http://libguestfs.org/">Libguestfs</a></li>
+			<li><a href="https://libvirt.org/">Libvirt</a></li>
+			<li><a href="https://xenproject.org">Xen</a></li>
+		</ul>
+	</div>
+	<div id="edit-page">
+		<a href="https://gitlab.com/qemu-project/qemu-web/-/blob/master/contribute/security-process.md">page source</a>
+	</div>
+	<div id="conservancy">
+		QEMU is a member of <a href="../../conservancy/">Software Freedom Conservancy</a>
+	</div>
+	<div id="sponsors">
+		QEMU has <a href="../../sponsors/">sponsors</a>
+	</div>
+	<div id="licenses">
+		<a href="../../license.html">Website licenses</a>
+	</div>
+</div>
+
+
+</body>
+</html>

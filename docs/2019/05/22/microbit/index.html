@@ -1,0 +1,756 @@
+<!DOCTYPE HTML>
+<!--
+Linear by TEMPLATED
+templated.co @templatedco
+Released for free under the Creative Commons Attribution 3.0 license (templated.co/license)
+  -->
+
+
+
+
+
+<html>
+<head>
+	<title>QEMU 4.0 adds micro:bit emulation support - QEMU</title>
+		<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+	<meta name="description" content="" />
+	<meta name="keywords" content="" />
+	<meta name="viewport" content="width=device-width">
+	<link href='https://fonts.googleapis.com/css?family=Roboto+Mono:300,400%7cRoboto:300,400,500' rel='stylesheet' type='text/css'>
+
+	<link rel="apple-touch-icon" sizes="180x180" href="../../../../assets/favicons/apple-touch-icon.png">
+	<link rel="icon" type="image/png" sizes="32x32" href="../../../../assets/favicons/favicon-32x32.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="../../../../assets/favicons/favicon-16x16.png">
+	<link rel="manifest" href="../../../../assets/favicons/manifest.json">
+	<link rel="mask-icon" href="../../../../assets/favicons/safari-pinned-tab.svg" color="#5bbad5">
+	<meta name="msapplication-config" content="../../../../assets/favicons/browserconfig.xml">
+	<meta name="theme-color" content="#ffffff">
+
+	<link rel="stylesheet" href="../../../../assets/css/normalize.css" />
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.6.3/css/font-awesome.min.css" />
+	<link rel="stylesheet" href="../../../../assets/css/skel-noscript.css" />
+	<link rel="stylesheet" href="../../../../assets/css/style.css" />
+	<link rel="stylesheet" href="../../../../assets/css/style-mobile.css" media="(max-width:699px)"/>
+	<link rel="stylesheet" href="../../../../assets/css/style-desktop.css" media="(min-width:700px)" />
+	<link rel="alternate" title="QEMU Blog (Atom feed)" href="../../../../feed.xml" type="application/atom+xml" />
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.0/jquery.min.js"></script>
+	
+
+</head>
+<body>
+
+		<!-- Nav -->
+	<nav id="nav">
+		<ul>
+			
+			<li class='home'><a href="../../../../">Home</a>
+			</li><li ><a href="../../../../download">Download</a>
+			</li><li ><a href="../../../../support">Support</a>
+			</li><li ><a href="../../../../contribute">Contribute</a>
+			</li><li ><a href="../../../../documentation">Docs</a>
+			</li><li><a href="https://wiki.qemu.org">Wiki</a>
+			</li><li ><a href="../../../../blog">Blog</a></li>
+		</ul>
+	</nav>
+
+<script>
+$('body').addClass('js');
+$('#nav').hide().before('<div id="titleBar"><div><button role="button" aria-pressed="false" aria-controls="nav" aria-label="Toggle navigation bar"><span class="fa fa-lg fa-bars"></span></button></div></div>');
+$('button[aria-controls="nav"]').click(function() {
+	jqNav = $('#nav');
+	if ($(this).attr('aria-pressed') == 'true') {
+		$(this).attr('aria-pressed', false);
+		$('#nav, #titleBar>div').animate(
+			{ 'margin-left': '-=80%' },
+			{ 'duration': 400 });
+		jqNav.promise().done(function() { jqNav.hide().css('margin-left', 0); });
+	} else {
+		$(this).attr('aria-pressed', true);
+		jqNav.css('margin-left', '-80%').show();
+		$('#nav, #titleBar>div').animate(
+			{ 'margin-left': '+=80%' },
+			{ 'duration': 400 });
+	}
+});
+</script>
+
+	<div id="main">
+		<div class="container">
+			<!-- Main -->
+	<section>
+		<header>
+			<h1>QEMU 4.0 adds micro:bit emulation support</h1>
+			<div class="posted">22 May 2019</div>
+		</header>
+		<p><a href="http://microbit.org/">micro:bit</a> emulation support is available from QEMU 4.0
+onwards and can be used for low-level software testing and development.  Unlike
+existing micro:bit simulators, QEMU performs full-system emulation and actually
+runs the same ARM code as the real hardware.  This blog post explains what
+full-system emulation means and why QEMU is now a useful tool for developing
+micro:bit software.</p>
+
+<p>The <a href="https://tech.microbit.org/hardware/">micro:bit is a tiny ARM board</a>
+designed for teaching.  It is increasingly being used around the world to
+expose children to computers, programming, and electronics in a low-cost way
+with an active online community that shares project ideas, lesson plans, and
+programming tips.</p>
+
+<p><img src="https://pxt.azureedge.net/blob/12e4685e5f24df67255a242bccb4d1c8e1395e5f/static/courses/csintro/making/microbit-board.png" alt="micro:bit board" /></p>
+
+<h2 id="simulators-and-emulators">Simulators and emulators</h2>
+<p><em>Simulators</em> are used for many tasks from mobile app development to
+performance analysis of computer hardware.  It is possible to develop code
+using a simulator without having access to real hardware.  Oftentimes using a
+simulator is more convenient than flashing and debugging programs on real
+hardware.</p>
+
+<p><em>Emulators</em> allow programs written for one computer system to run on a
+different computer system.  They use techniques like <a href="https://en.wikipedia.org/wiki/Interpreter_%28computing%29">machine code
+interpreters</a> and
+<a href="https://en.wikipedia.org/wiki/Just-in-time_compilation">just-in-time
+compilers</a> to execute
+guest programs that do not run natively on the host computer.  Each CPU
+instruction must be correctly implemented by the emulator so it can run guest
+software.</p>
+
+<h2 id="how-existing-microbit-simulators-work">How existing micro:bit simulators work</h2>
+<p>Simulators can be implemented at various layers in the software stack.  The
+<a href="https://makecode.microbit.org/#editor">MakeCode editor</a> for JavaScript
+development includes a micro:bit simulator:</p>
+
+<p><img src="/screenshots/makecode.png" alt="MakeCode editor" /></p>
+
+<p>This simulator does not execute any ARM code and is therefore not running
+the same CPU instructions as a real micro:bit.  Instead it reuses the JavaScript
+engine already available in your web browser to execute micro:bit JavaScript
+programs.  This is achieved by providing the micro:bit JavaScript APIs that
+micro:bit programs expect.  The programs don’t need to know whether those APIs
+are implemented by the real micro:bit software stack or whether they are
+actually calling into the MakeCode simulator.</p>
+
+<p>In the screenshot above the micro:bit program calls <code class="highlighter-rouge">showString("Hello
+world!")</code> and this becomes a call into the MakeCode simulator code to
+render images of LEDs in the web browser.  On real hardware the code path is
+different and eventually leads to an LED matrix driver that lights
+up the LEDs by driving output pins on the micro:bit board.</p>
+
+<h2 id="full-system-emulation">Full-system emulation</h2>
+<p>Unlike the MakeCode simulator, QEMU emulates the micro:bit CPU and boots
+from the same ARM code as the real micro:bit board.  The simulation happens at
+the CPU instruction and hardware interface level instead of at the JavaScript
+API level.  This is called <em>full-system emulation</em> because the entire
+guest software environment is present.</p>
+
+<p>What are the advantages of full-system emulation?</p>
+<ul>
+  <li>Programs written in any language can run (MicroPython, mbed C/C++, etc)</li>
+  <li>Boot, device driver, and language run-time code can be tested</li>
+  <li>Bugs in lower layers of the software stack can be reproduced</li>
+  <li>CPU architecture-specific bugs can be reproduced (stack and memory corruption bugs)</li>
+  <li>A debugger can be connected to inspect the entire software stack</li>
+</ul>
+
+<p>The main disadvantage of full-system emulation is that the performance
+overhead is higher since simulation happens at the CPU instruction level.
+Programs consist of many CPU instructions so the task of emulation is
+performance-sensitive.  Luckily the micro:bit’s CPU is much less powerful than
+CPUs available in our laptops and desktops, so programs execute at a reasonable
+speed.</p>
+
+<h2 id="running-microbit-programs-on-qemu">Running micro:bit programs on QEMU</h2>
+<p>QEMU emulates the core devices on the micro:bit, including the serial port
+(UART) and timers.  This is enough for developing and testing low-level
+software but does not offer the LEDs, radio, and other devices that most
+micro:bit programs rely on.  These devices might be emulated by QEMU in the
+future, but for now the main use of QEMU is for developing and testing
+low-level micro:bit code.</p>
+
+<p>To run <code class="highlighter-rouge">test.hex</code>:</p>
+<div class="language-shell highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>qemu-system-arm <span class="nt">-M</span> microbit <span class="nt">-device</span> loader,file<span class="o">=</span>test.hex <span class="nt">-serial</span> stdio
+</code></pre></div></div>
+
+<p>Any output written to the serial port is printed to the terminal by QEMU.</p>
+
+<h2 id="debugging-microbit-programs-with-qemu-and-gdb">Debugging micro:bit programs with QEMU and GDB</h2>
+<p>QEMU has GDB guest debugging support.  This means GDB can connect to QEMU in
+order to debug the guest software.  This is similar to debugging a real system
+over JTAG, except no hardware is necessary!</p>
+
+<p>Connect with GDB to debug the guest:</p>
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ qemu-system-arm -M microbit -device loader,file=test.hex -s
+$ gdb
+(gdb) target remote tcp:127.0.0.1:1234
+(gdb) x/10i $pc
+=&gt; 0x161c4:	ldr	r3, [r4, #0]
+   0x161c6:	cmp	r3, #0
+   0x161c8:	beq.n	0x161d2
+   0x161ca:	ldr	r3, [pc, #48]	; (0x161fc)
+   0x161cc:	ldr	r3, [r3, #0]
+   0x161ce:	cmp	r3, #0
+   0x161d0:	bne.n	0x161d8
+   0x161d2:	movs	r0, #6
+   0x161d4:	bl	0x16160
+   0x161d8:	ldr	r0, [r4, #0]
+</code></pre></div></div>
+
+<p>Having a debugger is very powerful.  QEMU can also load ELF files in
+addition to the popular .hex files used for micro:bit programs.  ELF files can
+contain debugging information that enables source-level debugging so GDB can
+display function and variable names as well as listing the source code instead
+of showing assembly instructions.</p>
+
+<h2 id="conclusion">Conclusion</h2>
+<p>QEMU now offers a platform for developing and testing micro:bit programs.
+It is open to future extension, hopefully to emulate more devices and offer
+a graphical user interface.</p>
+
+<p>micro:bit emulation was contributed by Julia Suvorova and Steffen Görtz as
+part of their Outreachy and Google Summer of Code internships with QEMU.  Jim
+Mussared, Joel Stanley, and Stefan Hajnoczi acted as mentors and contributed
+patches as well.</p>
+
+		<ul class="category">
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/qemu-4/index.html">qemu 4</a></li>
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/microbit/index.html">microbit</a></li>
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/gsoc/index.html">gsoc</a></li>
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/outreachy/index.html">outreachy</a></li>
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/internships/index.html">internships</a></li>
+		
+		</ul>
+	</section>
+
+		</div>
+	</div>
+	
+	
+<!-- Sidebar -->
+<div id="sidebar">
+<div class="container">
+	<section>
+		<header>
+			<h1>Recent Posts</h1>
+		</header>
+		<ul class="style">
+		
+			<li>
+				<a href="../../../../2022/12/15/qemu-7-2-0/">QEMU version 7.2.0 released</a><br/>
+				<span class="posted">15 Dec 2022</span>
+			</li>
+		
+			<li>
+				<a href="../../../../2022/11/17/zoned-emulation/">Introduction to Zoned Storage Emulation</a><br/>
+				<span class="posted">17 Nov 2022</span>
+			</li>
+		
+		</ul>
+	</section>
+
+
+	<section>
+		<header>
+			<h1>Archives</h1>
+		</header>
+		<ul class="style">
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/12/">December 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/11/">November 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/08/">August 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/04/">April 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/03/">March 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/02/">February 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/12/">December 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/08/">August 2021 (3)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/04/">April 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/03/">March 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/02/">February 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/01/">January 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/12/">December 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/11/">November 2020 (2)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/09/">September 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/08/">August 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/07/">July 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/04/">April 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/02/">February 2020 (2)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/12/">December 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/11/">November 2019 (3)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/08/">August 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/05/">May 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/04/">April 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/02/">February 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/01/">January 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/12/">December 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/08/">August 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/06/">June 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/05/">May 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/04/">April 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/02/">February 2018 (3)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/01/">January 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/11/">November 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/10/">October 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/09/">September 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/08/">August 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/05/">May 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/03/">March 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/02/">February 2017 (2)</a></li>
+		</ul>
+	</section>
+</div>
+</div>
+
+	<div id="footer">
+	<div id="external-links">
+		<ul class="style">
+			<li><a href="http://qemu-advent-calendar.org">Advent calendar</a></li>
+			<li><a href="https://planet.virt-tools.org/">Blog planet</a></li>
+			<li><a href="https://www.linux-kvm.org/">KVM</a></li>
+			<li><a href="http://libguestfs.org/">Libguestfs</a></li>
+			<li><a href="https://libvirt.org/">Libvirt</a></li>
+			<li><a href="https://xenproject.org">Xen</a></li>
+		</ul>
+	</div>
+	<div id="edit-page">
+		<a href="https://gitlab.com/qemu-project/qemu-web/-/blob/master/_posts/2019-05-21-microbit.md">page source</a>
+	</div>
+	<div id="conservancy">
+		QEMU is a member of <a href="../../../../conservancy/">Software Freedom Conservancy</a>
+	</div>
+	<div id="sponsors">
+		QEMU has <a href="../../../../sponsors/">sponsors</a>
+	</div>
+	<div id="licenses">
+		<a href="../../../../license.html">Website licenses</a>
+	</div>
+</div>
+
+
+</body>
+</html>

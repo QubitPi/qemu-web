@@ -1,0 +1,763 @@
+<!DOCTYPE HTML>
+<!--
+Linear by TEMPLATED
+templated.co @templatedco
+Released for free under the Creative Commons Attribution 3.0 license (templated.co/license)
+  -->
+
+
+
+
+
+<html>
+<head>
+	<title>Using virtio-fs on a unikernel - QEMU</title>
+		<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+	<meta name="description" content="" />
+	<meta name="keywords" content="" />
+	<meta name="viewport" content="width=device-width">
+	<link href='https://fonts.googleapis.com/css?family=Roboto+Mono:300,400%7cRoboto:300,400,500' rel='stylesheet' type='text/css'>
+
+	<link rel="apple-touch-icon" sizes="180x180" href="../../../../assets/favicons/apple-touch-icon.png">
+	<link rel="icon" type="image/png" sizes="32x32" href="../../../../assets/favicons/favicon-32x32.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="../../../../assets/favicons/favicon-16x16.png">
+	<link rel="manifest" href="../../../../assets/favicons/manifest.json">
+	<link rel="mask-icon" href="../../../../assets/favicons/safari-pinned-tab.svg" color="#5bbad5">
+	<meta name="msapplication-config" content="../../../../assets/favicons/browserconfig.xml">
+	<meta name="theme-color" content="#ffffff">
+
+	<link rel="stylesheet" href="../../../../assets/css/normalize.css" />
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.6.3/css/font-awesome.min.css" />
+	<link rel="stylesheet" href="../../../../assets/css/skel-noscript.css" />
+	<link rel="stylesheet" href="../../../../assets/css/style.css" />
+	<link rel="stylesheet" href="../../../../assets/css/style-mobile.css" media="(max-width:699px)"/>
+	<link rel="stylesheet" href="../../../../assets/css/style-desktop.css" media="(min-width:700px)" />
+	<link rel="alternate" title="QEMU Blog (Atom feed)" href="../../../../feed.xml" type="application/atom+xml" />
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.0/jquery.min.js"></script>
+	
+
+</head>
+<body>
+
+		<!-- Nav -->
+	<nav id="nav">
+		<ul>
+			
+			<li class='home'><a href="../../../../">Home</a>
+			</li><li ><a href="../../../../download">Download</a>
+			</li><li ><a href="../../../../support">Support</a>
+			</li><li ><a href="../../../../contribute">Contribute</a>
+			</li><li ><a href="../../../../documentation">Docs</a>
+			</li><li><a href="https://wiki.qemu.org">Wiki</a>
+			</li><li ><a href="../../../../blog">Blog</a></li>
+		</ul>
+	</nav>
+
+<script>
+$('body').addClass('js');
+$('#nav').hide().before('<div id="titleBar"><div><button role="button" aria-pressed="false" aria-controls="nav" aria-label="Toggle navigation bar"><span class="fa fa-lg fa-bars"></span></button></div></div>');
+$('button[aria-controls="nav"]').click(function() {
+	jqNav = $('#nav');
+	if ($(this).attr('aria-pressed') == 'true') {
+		$(this).attr('aria-pressed', false);
+		$('#nav, #titleBar>div').animate(
+			{ 'margin-left': '-=80%' },
+			{ 'duration': 400 });
+		jqNav.promise().done(function() { jqNav.hide().css('margin-left', 0); });
+	} else {
+		$(this).attr('aria-pressed', true);
+		jqNav.css('margin-left', '-80%').show();
+		$('#nav, #titleBar>div').animate(
+			{ 'margin-left': '+=80%' },
+			{ 'duration': 400 });
+	}
+});
+</script>
+
+	<div id="main">
+		<div class="container">
+			<!-- Main -->
+	<section>
+		<header>
+			<h1>Using virtio-fs on a unikernel</h1>
+			<div class="posted">04 Nov 2020 &mdash; by Fotis Xenakis</div>
+		</header>
+		<p>This article provides an overview of <a href="https://virtio-fs.gitlab.io/">virtio-fs</a>,
+a novel way for sharing the host file system with guests and
+<a href="https://github.com/cloudius-systems/osv">OSv</a>, a specialized, lightweight
+operating system (unikernel) for the cloud, as well as how these two fit
+together.</p>
+
+<h2 id="virtio-fs">virtio-fs</h2>
+
+<p>Virtio-fs is a new host-guest shared filesystem, purpose-built for local file
+system semantics and performance. To that end, it takes full advantage of the
+host’s and the guest’s colocation on the same physical machine, unlike
+network-based efforts, like virtio-9p.</p>
+
+<p>As the name suggests, virtio-fs builds on virtio for providing an efficient
+transport: it is included in the (currently draft, to become v1.2) virtio
+<a href="https://github.com/oasis-tcs/virtio-spec">specification</a> as a new device. The
+protocol used by the device is a slightly extended version of
+<a href="https://github.com/libfuse/libfuse">FUSE</a>, providing a solid foundation for
+all file system operations native on Linux. Implementation-wise, on the QEMU
+side, it takes the approach of splitting between the guest interface (handled
+by QEMU) and the host file system interface (the device “backend”). The latter
+is handled by virtiofsd (“virtio-fs daemon”), running as a separate process,
+utilizing the
+<a href="https://www.qemu.org/docs/master/interop/vhost-user.html">vhost-user</a> protocol
+to communicate with QEMU.</p>
+
+<p>One prominent performance feature of virtio-fs is the DAX (Direct Access)
+window. It’s a shared memory window between the host and the guest, exposed as
+device memory (a PCI BAR) to the second. Upon request, the host (QEMU) maps file contents to the window for the guest to access directly. This bears performance
+gains due to taking VMEXITs out of the read/write data path and bypassing the
+guest page cache on Linux, while not counting against the VM’s memory (since
+it’s just device memory, managed on the host).</p>
+
+<p><img src="https://gitlab.com/virtio-fs/virtio-fs.gitlab.io/-/raw/master/architecture.svg" alt="virtio-fs DAX architecture" /></p>
+
+<p>Virtio-fs is under active development, with its community focussing on a pair of
+device implementation in QEMU and device driver in Linux. Both components are
+already available upstream in their initial iterations, while upstreaming
+continues further e.g. with DAX window support.</p>
+
+<h2 id="osv">OSv</h2>
+
+<p>OSv is a <a href="https://en.wikipedia.org/wiki/Unikernel">unikernel</a> (framework). The
+two defining characteristics of a unikernel are:</p>
+
+<ul>
+  <li><strong>Application-specialized</strong>: a unikernel is an executable machine image,
+consisting of an application and supporting code (drivers, memory management,
+runtime etc.) linked together, running in a single address space (typically
+in guest “kernel mode”).</li>
+  <li><strong>Library OS</strong>: each unikernel only contains the functionality mandated by its
+application in terms of non-application code, i.e. no unused drivers, or even
+whole subsystems (e.g. networking, if the application doesn’t use the
+network).</li>
+</ul>
+
+<p>OSv in particular strives for binary compatibility with Linux, using a <a href="https://github.com/cloudius-systems/osv/wiki/Dynamic-Linker">dynamic
+linker</a>. This means
+that applications built for Linux should run as OSv unikernels without requiring
+modifications or even rebuilding, at least most of the time. Of course, not the
+whole Linux ABI is supported, with system calls like <code class="highlighter-rouge">fork()</code> and relatives
+missing by design in all unikernels, which lack the notion of a process. Despite
+this limitation, OSv is quite full featured, with full SMP support, virtual
+memory, a virtual file system (and many filesystem implementations, including
+ZFS) as well as a mature networking stack, based on the FreeBSD sources.</p>
+
+<p>At this point, one is sure to wonder “Why bother with unikernels?”. The problem
+they were originally
+<a href="http://unikernel.org/files/2013-asplos-mirage.pdf">introduced</a> to solve is the
+bloated software stack in modern cloud computing. Running general-purpose
+operating systems as guests, typically for a single application/service, on top
+of a hypervisor which already takes care of isolation and provides a standard
+device model means duplication, as well as loss of efficiency. This is were
+unikernels come in, trying to be just enough to support a single application
+and as light-weight as possible, based on the assumption that they are executing
+inside a VM. Below is an illustration of the comparison between
+general-purpose OS, unikernels and containers (as another approach to the same
+problem, for completeness).</p>
+
+<p><img src="/screenshots/2020-11-04-unikernel-vs-gpos.svg" alt="Unikernels vs GPOS vs containers" /></p>
+
+<h2 id="osv-meet-virtio-fs">OSv, meet virtio-fs</h2>
+
+<p>As is apparent e.g. from the container world, it is very common for applications
+running in isolated environments (such as containers, or unikernels even more
+so) to require host file system access. Whereas containers sharing the host
+kernel thus have an obvious, controlled path to the host file system, with
+unikernels this has been more complex: all solutions were somewhat heavyweight,
+requiring a network link or indirection through network protocols. Virtio-fs
+then provided a significantly more attractive route: straight-forward mapping of
+fs operations (via FUSE), reusing the existing virtio transport and decent
+performance without high memory overhead.</p>
+
+<p>The OSv community quickly identified the opportunity and came up with a
+read-only implementation on its side, when executing under QEMU. This emphasized
+being lightweight complexity-wise, while catering to many of its applications’
+requirements (they are stateless, think e.g. serverless). Notably, it includes
+support for the DAX window (even before that’s merged in upstream QEMU),
+providing <a href="https://github.com/foxeng/diploma">excellent performance</a>, directly
+rivalling that of its local (non-shared) counterparts such as ZFS and ROFS (an
+OSv-specific read-only file system).</p>
+
+<p>One central point is OSv’s support for booting from virtio-fs: this enables
+deploying a modified version or a whole new application <strong>without rebuilding</strong>
+the image, just by adjusting its root file system contents on the host. Last,
+owing to the DAX window practically providing low-overhead access to the host’s
+page cache, scalability is also expected to excel, with it being a common
+concern due to the potentially high density of unikernels per host.</p>
+
+<p>For example, to build the <code class="highlighter-rouge">cli</code> OSv image, bootable from virtio-fs, using the
+core OSv <a href="https://github.com/cloudius-systems/osv#building-osv-kernel-and-creating-images">build
+system</a>:</p>
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>scripts/build fs=virtiofs export=all image=cli
+</code></pre></div></div>
+<p>This results in a minimal image (just the initramfs), while the root fs contents
+are placed in a directory on the host (<code class="highlighter-rouge">build/export</code> here, by default).</p>
+
+<p><a href="https://github.com/cloudius-systems/osv#running-osv">Running</a> the above image
+is just a step away (may want to use the virtio-fs development version of
+<a href="https://gitlab.com/virtio-fs/qemu/-/tree/virtio-fs-dev">QEMU</a>, e.g. for DAX
+window support):</p>
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>scripts/run.py --virtio-fs-tag=myfs --virtio-fs-dir=$(pwd)/build/export
+</code></pre></div></div>
+<p>This orchestrates running both virtiofsd and QEMU, using the contents of
+<code class="highlighter-rouge">build/export</code> as the root file system. Any changes to this directory, directly
+from the host will be visible in the guest without re-running the previous build
+step.</p>
+
+<h2 id="conclusion">Conclusion</h2>
+
+<p>OSv has gained a prominent new feature, powered by virtio-fs and its QEMU
+implementation. This allows efficient, lightweight and performant access to the
+host’s file system, thanks to the native virtio transport, usage of the FUSE
+protocol and the DAX window architecture. In turn, it enables use cases like
+rapid unikernel reconfiguration.</p>
+
+		<ul class="category">
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/storage/index.html">storage</a></li>
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/virtio-fs/index.html">virtio-fs</a></li>
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/unikernel/index.html">unikernel</a></li>
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/osv/index.html">OSv</a></li>
+		
+		</ul>
+	</section>
+
+		</div>
+	</div>
+	
+	
+<!-- Sidebar -->
+<div id="sidebar">
+<div class="container">
+	<section>
+		<header>
+			<h1>Recent Posts</h1>
+		</header>
+		<ul class="style">
+		
+			<li>
+				<a href="../../../../2022/12/15/qemu-7-2-0/">QEMU version 7.2.0 released</a><br/>
+				<span class="posted">15 Dec 2022</span>
+			</li>
+		
+			<li>
+				<a href="../../../../2022/11/17/zoned-emulation/">Introduction to Zoned Storage Emulation</a><br/>
+				<span class="posted">17 Nov 2022</span>
+			</li>
+		
+		</ul>
+	</section>
+
+
+	<section>
+		<header>
+			<h1>Archives</h1>
+		</header>
+		<ul class="style">
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/12/">December 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/11/">November 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/08/">August 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/04/">April 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/03/">March 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/02/">February 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/12/">December 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/08/">August 2021 (3)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/04/">April 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/03/">March 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/02/">February 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/01/">January 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/12/">December 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/11/">November 2020 (2)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/09/">September 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/08/">August 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/07/">July 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/04/">April 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/02/">February 2020 (2)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/12/">December 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/11/">November 2019 (3)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/08/">August 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/05/">May 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/04/">April 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/02/">February 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/01/">January 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/12/">December 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/08/">August 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/06/">June 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/05/">May 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/04/">April 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/02/">February 2018 (3)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/01/">January 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/11/">November 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/10/">October 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/09/">September 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/08/">August 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/05/">May 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/03/">March 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/02/">February 2017 (2)</a></li>
+		</ul>
+	</section>
+</div>
+</div>
+
+	<div id="footer">
+	<div id="external-links">
+		<ul class="style">
+			<li><a href="http://qemu-advent-calendar.org">Advent calendar</a></li>
+			<li><a href="https://planet.virt-tools.org/">Blog planet</a></li>
+			<li><a href="https://www.linux-kvm.org/">KVM</a></li>
+			<li><a href="http://libguestfs.org/">Libguestfs</a></li>
+			<li><a href="https://libvirt.org/">Libvirt</a></li>
+			<li><a href="https://xenproject.org">Xen</a></li>
+		</ul>
+	</div>
+	<div id="edit-page">
+		<a href="https://gitlab.com/qemu-project/qemu-web/-/blob/master/_posts/2020-11-04-osv-virtio-fs.md">page source</a>
+	</div>
+	<div id="conservancy">
+		QEMU is a member of <a href="../../../../conservancy/">Software Freedom Conservancy</a>
+	</div>
+	<div id="sponsors">
+		QEMU has <a href="../../../../sponsors/">sponsors</a>
+	</div>
+	<div id="licenses">
+		<a href="../../../../license.html">Website licenses</a>
+	</div>
+</div>
+
+
+</body>
+</html>

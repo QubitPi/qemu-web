@@ -1,0 +1,689 @@
+<!DOCTYPE HTML>
+<!--
+Linear by TEMPLATED
+templated.co @templatedco
+Released for free under the Creative Commons Attribution 3.0 license (templated.co/license)
+  -->
+
+
+
+
+
+<html>
+<head>
+	<title>Introduction to Zoned Storage Emulation - QEMU</title>
+		<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+	<meta name="description" content="" />
+	<meta name="keywords" content="" />
+	<meta name="viewport" content="width=device-width">
+	<link href='https://fonts.googleapis.com/css?family=Roboto+Mono:300,400%7cRoboto:300,400,500' rel='stylesheet' type='text/css'>
+
+	<link rel="apple-touch-icon" sizes="180x180" href="../../../../assets/favicons/apple-touch-icon.png">
+	<link rel="icon" type="image/png" sizes="32x32" href="../../../../assets/favicons/favicon-32x32.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="../../../../assets/favicons/favicon-16x16.png">
+	<link rel="manifest" href="../../../../assets/favicons/manifest.json">
+	<link rel="mask-icon" href="../../../../assets/favicons/safari-pinned-tab.svg" color="#5bbad5">
+	<meta name="msapplication-config" content="../../../../assets/favicons/browserconfig.xml">
+	<meta name="theme-color" content="#ffffff">
+
+	<link rel="stylesheet" href="../../../../assets/css/normalize.css" />
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.6.3/css/font-awesome.min.css" />
+	<link rel="stylesheet" href="../../../../assets/css/skel-noscript.css" />
+	<link rel="stylesheet" href="../../../../assets/css/style.css" />
+	<link rel="stylesheet" href="../../../../assets/css/style-mobile.css" media="(max-width:699px)"/>
+	<link rel="stylesheet" href="../../../../assets/css/style-desktop.css" media="(min-width:700px)" />
+	<link rel="alternate" title="QEMU Blog (Atom feed)" href="../../../../feed.xml" type="application/atom+xml" />
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.0/jquery.min.js"></script>
+	
+
+</head>
+<body>
+
+		<!-- Nav -->
+	<nav id="nav">
+		<ul>
+			
+			<li class='home'><a href="../../../../">Home</a>
+			</li><li ><a href="../../../../download">Download</a>
+			</li><li ><a href="../../../../support">Support</a>
+			</li><li ><a href="../../../../contribute">Contribute</a>
+			</li><li ><a href="../../../../documentation">Docs</a>
+			</li><li><a href="https://wiki.qemu.org">Wiki</a>
+			</li><li ><a href="../../../../blog">Blog</a></li>
+		</ul>
+	</nav>
+
+<script>
+$('body').addClass('js');
+$('#nav').hide().before('<div id="titleBar"><div><button role="button" aria-pressed="false" aria-controls="nav" aria-label="Toggle navigation bar"><span class="fa fa-lg fa-bars"></span></button></div></div>');
+$('button[aria-controls="nav"]').click(function() {
+	jqNav = $('#nav');
+	if ($(this).attr('aria-pressed') == 'true') {
+		$(this).attr('aria-pressed', false);
+		$('#nav, #titleBar>div').animate(
+			{ 'margin-left': '-=80%' },
+			{ 'duration': 400 });
+		jqNav.promise().done(function() { jqNav.hide().css('margin-left', 0); });
+	} else {
+		$(this).attr('aria-pressed', true);
+		jqNav.css('margin-left', '-80%').show();
+		$('#nav, #titleBar>div').animate(
+			{ 'margin-left': '+=80%' },
+			{ 'duration': 400 });
+	}
+});
+</script>
+
+	<div id="main">
+		<div class="container">
+			<!-- Main -->
+	<section>
+		<header>
+			<h1>Introduction to Zoned Storage Emulation</h1>
+			<div class="posted">17 Nov 2022 &mdash; by Sam Li</div>
+		</header>
+		<p>This summer I worked on adding Zoned Block Device (ZBD) support to virtio-blk as part of the <a href="https://www.outreachy.org/">Outreachy</a> internship program. QEMU hasn’t directly supported ZBDs before so this article explains how they work and why QEMU needed to be extended.</p>
+
+<h2 id="zoned-block-devices">Zoned block devices</h2>
+
+<p>Zoned block devices (ZBDs) are divided into regions called zones that can only be written sequentially. By only allowing sequential writes, SSD write amplification can be reduced by eliminating the need for a <a href="https://en.wikipedia.org/wiki/Flash_translation_layer">Flash Translation Layer</a>, and potentially lead to higher throughput and increased capacity. Providing a new storage software stack, zoned storage concepts are standardized as <a href="https://zonedstorage.io/docs/introduction/smr#governing-standards">ZBC (SCSI standard), ZAC (ATA standard)</a>, and <a href="https://zonedstorage.io/docs/introduction/zns">ZNS (NVMe)</a>. Meanwhile, the virtio protocol for block devices(virtio-blk) should also be aware of ZBDs instead of taking them as regular block devices. It should be able to pass such devices through to the guest. An overview of necessary work is as follows:</p>
+
+<ol>
+  <li>Virtio protocol: <a href="https://lwn.net/Articles/914377/">extend virtio-blk protocol with main zoned storage concept</a>, Dmitry Fomichev</li>
+  <li>Linux: <a href="https://www.spinics.net/lists/linux-block/msg91944.html">implement the virtio specification extensions</a>, Dmitry Fomichev</li>
+  <li>QEMU: <a href="https://lists.gnu.org/archive/html/qemu-devel/2022-10/msg05195.html">add zoned storage APIs to the block layer</a>, Sam Li</li>
+  <li>QEMU: implement zoned storage support in virtio-blk emulation, Sam Li</li>
+</ol>
+
+<p>Once the QEMU and Linux patches have been merged it will be possible to expose a virtio-blk ZBD to the guest like this:</p>
+
+<div class="language-sh highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">-blockdev</span> node-name<span class="o">=</span>drive0,driver<span class="o">=</span>zoned_host_device,filename<span class="o">=</span>/path/to/zbd,cache.direct<span class="o">=</span>on <span class="se">\</span>
+<span class="nt">-device</span> virtio-blk-pci,drive<span class="o">=</span>drive0 <span class="se">\</span>
+</code></pre></div></div>
+
+<p>And then we can perform zoned block commands on that device in the guest os.</p>
+
+<div class="language-sh highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># blkzone report /dev/vda</span>
+start: 0x000000000, len 0x020000, cap 0x020000, wptr 0x000000 reset:0 non-seq:0, zcond: 0<span class="o">(</span>nw<span class="o">)</span> <span class="o">[</span><span class="nb">type</span>: 1<span class="o">(</span>CONVENTIONAL<span class="o">)]</span>
+start: 0x000020000, len 0x020000, cap 0x020000, wptr 0x000000 reset:0 non-seq:0, zcond: 0<span class="o">(</span>nw<span class="o">)</span> <span class="o">[</span><span class="nb">type</span>: 1<span class="o">(</span>CONVENTIONAL<span class="o">)]</span>
+start: 0x000040000, len 0x020000, cap 0x020000, wptr 0x000000 reset:0 non-seq:0, zcond: 0<span class="o">(</span>nw<span class="o">)</span> <span class="o">[</span><span class="nb">type</span>: 1<span class="o">(</span>CONVENTIONAL<span class="o">)]</span>
+start: 0x000060000, len 0x020000, cap 0x020000, wptr 0x000000 reset:0 non-seq:0, zcond: 0<span class="o">(</span>nw<span class="o">)</span> <span class="o">[</span><span class="nb">type</span>: 1<span class="o">(</span>CONVENTIONAL<span class="o">)]</span>
+start: 0x000080000, len 0x020000, cap 0x020000, wptr 0x000000 reset:0 non-seq:0, zcond: 0<span class="o">(</span>nw<span class="o">)</span> <span class="o">[</span><span class="nb">type</span>: 1<span class="o">(</span>CONVENTIONAL<span class="o">)]</span>
+start: 0x0000a0000, len 0x020000, cap 0x020000, wptr 0x000000 reset:0 non-seq:0, zcond: 0<span class="o">(</span>nw<span class="o">)</span> <span class="o">[</span><span class="nb">type</span>: 1<span class="o">(</span>CONVENTIONAL<span class="o">)]</span>
+start: 0x0000c0000, len 0x020000, cap 0x020000, wptr 0x000000 reset:0 non-seq:0, zcond: 0<span class="o">(</span>nw<span class="o">)</span> <span class="o">[</span><span class="nb">type</span>: 1<span class="o">(</span>CONVENTIONAL<span class="o">)]</span>
+start: 0x0000e0000, len 0x020000, cap 0x020000, wptr 0x000000 reset:0 non-seq:0, zcond: 0<span class="o">(</span>nw<span class="o">)</span> <span class="o">[</span><span class="nb">type</span>: 1<span class="o">(</span>CONVENTIONAL<span class="o">)]</span>
+start: 0x000100000, len 0x020000, cap 0x020000, wptr 0x000000 reset:0 non-seq:0, zcond: 1<span class="o">(</span>em<span class="o">)</span> <span class="o">[</span><span class="nb">type</span>: 2<span class="o">(</span>SEQ_WRITE_REQUIRED<span class="o">)]</span>
+start: 0x000120000, len 0x020000, cap 0x020000, wptr 0x000000 reset:0 non-seq:0, zcond: 1<span class="o">(</span>em<span class="o">)</span> <span class="o">[</span><span class="nb">type</span>: 2<span class="o">(</span>SEQ_WRITE_REQUIRED<span class="o">)]</span>
+start: 0x000140000, len 0x020000, cap 0x020000, wptr 0x000000 reset:0 non-seq:0, zcond: 1<span class="o">(</span>em<span class="o">)</span> <span class="o">[</span><span class="nb">type</span>: 2<span class="o">(</span>SEQ_WRITE_REQUIRED<span class="o">)]</span>
+start: 0x000160000, len 0x020000, cap 0x020000, wptr 0x000000 reset:0 non-seq:0, zcond: 1<span class="o">(</span>em<span class="o">)</span> <span class="o">[</span><span class="nb">type</span>: 2<span class="o">(</span>SEQ_WRITE_REQUIRED<span class="o">)]</span>
+</code></pre></div></div>
+
+<h2 id="zoned-emulation">Zoned emulation</h2>
+
+<p>Currently, QEMU can support zoned devices by virtio-scsi or PCI device passthrough. It needs to specify the device type it is talking to. Whereas storage controller emulation uses block layer APIs instead of directly accessing disk images. Extending virtio-blk emulation avoids code duplication and simplify the support by hiding the device types under a unified zoned storage interface, simplifying VM deployment for different types of zoned devices. Virtio-blk can also be implemented in hardware. If those devices wish to follow the zoned storage model then the virtio-blk specification needs to natively support zoned storage. With such support, individual NVMe namespaces or anything that is a zoned Linux block device can be exposed to the guest without passing through a full device.</p>
+
+<p>For zoned storage emulation, zoned storage APIs support three zoned models (conventional, host-managed, host-aware) , four zone management commands (Report Zone, Open Zone, Close Zone, Finish Zone), and Append Zone.  The QEMU block layer has a BlockDriverState graph that propagates device information inside block layer. File-posix driver is the lowest level within the graph where zoned storage APIs reside.</p>
+
+<p>After receiving the block driver states, Virtio-blk emulation recognizes zoned devices and sends the zoned feature bit to guest. Then the guest can see the zoned device in the host. When the guest executes zoned operations, virtio-blk driver issues corresponding requests that will be captured by viritio-blk device inside QEMU. Afterwards, virtio-blk device sends the requests to file-posix driver which will perform zoned operations using Linux ioctls.</p>
+
+<p>Unlike zone management operations, Linux doesn’t have a user API to issue zone append requests to zoned devices from user space. With the help of write pointer emulation tracking locations of write pointer of each zone, QEMU block layer can perform append writes by modifying regular writes. Write pointer locks guarantee the execution of requests. Upon failure it must not update the write pointer location which is only got updated when the request is successfully finished.</p>
+
+<p>Problems can always be solved with right mind and right tools. A good approach to avoid pitfalls of programs is test-driven. In the beginning, users like qemu-io commands utility can invoke new block layer APIs. Moving towards to guest, existing tools like blktests, zonefs-tools, and fio are introduced for broader testing. Depending on the size of the zoned device, some tests may take long enough time to finish. Besides, tracing is also a good tool for spotting bugs. QEMU tracking tools and blktrace monitors block layer IO, providing detailed information to analysis.</p>
+
+<h2 id="starting-the-journey-with-open-source">Starting the journey with open source</h2>
+
+<p>As a student interested in computer science, I am enthusiastic about making real applications and fortunate to find the opportunity in this summer. I have a wonderful experience with QEMU where I get chance to work with experienced engineers and meet peers sharing same interests. It is a good starting point for me to continue my search on storage systems and open source projects.</p>
+
+<p>Public communication, reaching out to people and admitting to failures used to be hard for me. Those feelings had faded away as I put more effort to this project over time. For people may having the same trouble as me, it might be useful to focus on the tasks ahead of you instead of worrying about the consequences of rejections from others.</p>
+
+<p>Finally, I would like to thank Stefan Hajnoczi, Damien Le Moal, Dmitry Fomichev, and Hannes Reinecke for mentoring me - they have guided me through this project with patience and expertise, when I hit  obstacles on design or implementations, and introduced a fun and vibrant open source world for me. Also thank QEMU community and Outreachy for organizing this program.</p>
+
+<h2 id="conclusion">Conclusion</h2>
+
+<p>The current status for this project is waiting for virtio specifications extension and Linux driver support patches got accepted. And the up-to-date patch series of zoned device support welcome any new comments.</p>
+
+<p>The next step for zoned storage emulation in QEMU is to enable full zoned emulation through virtio-blk. Adding support on top of a regular file, it allows developers accessing a zoned device environment without real zoned storage hardwares. Furthermore, virtio-scsi may need to add full emulation support to complete the zoned storage picture in QEMU. QEMU NVMe ZNS emulation can also use new block layer APIs to attach real zoned storage if the emulation is used in production in future.</p>
+
+		<ul class="category">
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/storage/index.html">storage</a></li>
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/gsoc/index.html">gsoc</a></li>
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/outreachy/index.html">outreachy</a></li>
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/internships/index.html">internships</a></li>
+		
+		</ul>
+	</section>
+
+		</div>
+	</div>
+	
+	
+<!-- Sidebar -->
+<div id="sidebar">
+<div class="container">
+	<section>
+		<header>
+			<h1>Recent Posts</h1>
+		</header>
+		<ul class="style">
+		
+			<li>
+				<a href="../../../../2022/12/15/qemu-7-2-0/">QEMU version 7.2.0 released</a><br/>
+				<span class="posted">15 Dec 2022</span>
+			</li>
+		
+			<li>
+				<a href="../../../../2022/11/17/zoned-emulation/">Introduction to Zoned Storage Emulation</a><br/>
+				<span class="posted">17 Nov 2022</span>
+			</li>
+		
+		</ul>
+	</section>
+
+
+	<section>
+		<header>
+			<h1>Archives</h1>
+		</header>
+		<ul class="style">
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/12/">December 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/11/">November 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/08/">August 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/04/">April 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/03/">March 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/02/">February 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/12/">December 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/08/">August 2021 (3)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/04/">April 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/03/">March 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/02/">February 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/01/">January 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/12/">December 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/11/">November 2020 (2)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/09/">September 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/08/">August 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/07/">July 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/04/">April 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/02/">February 2020 (2)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/12/">December 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/11/">November 2019 (3)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/08/">August 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/05/">May 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/04/">April 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/02/">February 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/01/">January 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/12/">December 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/08/">August 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/06/">June 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/05/">May 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/04/">April 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/02/">February 2018 (3)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/01/">January 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/11/">November 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/10/">October 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/09/">September 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/08/">August 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/05/">May 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/03/">March 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/02/">February 2017 (2)</a></li>
+		</ul>
+	</section>
+</div>
+</div>
+
+	<div id="footer">
+	<div id="external-links">
+		<ul class="style">
+			<li><a href="http://qemu-advent-calendar.org">Advent calendar</a></li>
+			<li><a href="https://planet.virt-tools.org/">Blog planet</a></li>
+			<li><a href="https://www.linux-kvm.org/">KVM</a></li>
+			<li><a href="http://libguestfs.org/">Libguestfs</a></li>
+			<li><a href="https://libvirt.org/">Libvirt</a></li>
+			<li><a href="https://xenproject.org">Xen</a></li>
+		</ul>
+	</div>
+	<div id="edit-page">
+		<a href="https://gitlab.com/qemu-project/qemu-web/-/blob/master/_posts/2022-11-17-zoned-emulation.md">page source</a>
+	</div>
+	<div id="conservancy">
+		QEMU is a member of <a href="../../../../conservancy/">Software Freedom Conservancy</a>
+	</div>
+	<div id="sponsors">
+		QEMU has <a href="../../../../sponsors/">sponsors</a>
+	</div>
+	<div id="licenses">
+		<a href="../../../../license.html">Website licenses</a>
+	</div>
+</div>
+
+
+</body>
+</html>

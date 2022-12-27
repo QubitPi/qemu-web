@@ -1,0 +1,1246 @@
+<!DOCTYPE HTML>
+<!--
+Linear by TEMPLATED
+templated.co @templatedco
+Released for free under the Creative Commons Attribution 3.0 license (templated.co/license)
+  -->
+
+
+
+
+
+<html>
+<head>
+	<title>Presenting guest images as raw image files with FUSE - QEMU</title>
+		<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+	<meta name="description" content="" />
+	<meta name="keywords" content="" />
+	<meta name="viewport" content="width=device-width">
+	<link href='https://fonts.googleapis.com/css?family=Roboto+Mono:300,400%7cRoboto:300,400,500' rel='stylesheet' type='text/css'>
+
+	<link rel="apple-touch-icon" sizes="180x180" href="../../../../assets/favicons/apple-touch-icon.png">
+	<link rel="icon" type="image/png" sizes="32x32" href="../../../../assets/favicons/favicon-32x32.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="../../../../assets/favicons/favicon-16x16.png">
+	<link rel="manifest" href="../../../../assets/favicons/manifest.json">
+	<link rel="mask-icon" href="../../../../assets/favicons/safari-pinned-tab.svg" color="#5bbad5">
+	<meta name="msapplication-config" content="../../../../assets/favicons/browserconfig.xml">
+	<meta name="theme-color" content="#ffffff">
+
+	<link rel="stylesheet" href="../../../../assets/css/normalize.css" />
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.6.3/css/font-awesome.min.css" />
+	<link rel="stylesheet" href="../../../../assets/css/skel-noscript.css" />
+	<link rel="stylesheet" href="../../../../assets/css/style.css" />
+	<link rel="stylesheet" href="../../../../assets/css/style-mobile.css" media="(max-width:699px)"/>
+	<link rel="stylesheet" href="../../../../assets/css/style-desktop.css" media="(min-width:700px)" />
+	<link rel="alternate" title="QEMU Blog (Atom feed)" href="../../../../feed.xml" type="application/atom+xml" />
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.0/jquery.min.js"></script>
+	
+
+</head>
+<body>
+
+		<!-- Nav -->
+	<nav id="nav">
+		<ul>
+			
+			<li class='home'><a href="../../../../">Home</a>
+			</li><li ><a href="../../../../download">Download</a>
+			</li><li ><a href="../../../../support">Support</a>
+			</li><li ><a href="../../../../contribute">Contribute</a>
+			</li><li ><a href="../../../../documentation">Docs</a>
+			</li><li><a href="https://wiki.qemu.org">Wiki</a>
+			</li><li ><a href="../../../../blog">Blog</a></li>
+		</ul>
+	</nav>
+
+<script>
+$('body').addClass('js');
+$('#nav').hide().before('<div id="titleBar"><div><button role="button" aria-pressed="false" aria-controls="nav" aria-label="Toggle navigation bar"><span class="fa fa-lg fa-bars"></span></button></div></div>');
+$('button[aria-controls="nav"]').click(function() {
+	jqNav = $('#nav');
+	if ($(this).attr('aria-pressed') == 'true') {
+		$(this).attr('aria-pressed', false);
+		$('#nav, #titleBar>div').animate(
+			{ 'margin-left': '-=80%' },
+			{ 'duration': 400 });
+		jqNav.promise().done(function() { jqNav.hide().css('margin-left', 0); });
+	} else {
+		$(this).attr('aria-pressed', true);
+		jqNav.css('margin-left', '-80%').show();
+		$('#nav, #titleBar>div').animate(
+			{ 'margin-left': '+=80%' },
+			{ 'duration': 400 });
+	}
+});
+</script>
+
+	<div id="main">
+		<div class="container">
+			<!-- Main -->
+	<section>
+		<header>
+			<h1>Presenting guest images as raw image files with FUSE</h1>
+			<div class="posted">22 Aug 2021 (Updated 06 Sep 2021)  &mdash; by Hanna Reitz</div>
+		</header>
+		<p>Sometimes, there is a VM disk image whose contents you want to manipulate
+without booting the VM.  One way of doing this is to use
+<a href="https://libguestfs.org">libguestfs</a>, which can boot a minimal Linux VM to
+provide the host with secure access to the disk’s contents.  For example,
+<a href="https://libguestfs.org/guestmount.1.html"><em>guestmount</em></a> allows you to mount a
+guest filesystem on the host, without requiring root rights.</p>
+
+<p>However, maybe you cannot or do not want to use libguestfs, e.g. because you do
+not have KVM available in your environment, and so it becomes too slow; or
+because you do not want to go through a guest OS, but want to access the raw
+image data directly on the host, with minimal overhead.</p>
+
+<p><strong>Note</strong>: Guest images can generally be arbitrarily modified by VM guests.  If
+you have an image to which an untrusted guest had write access at some point,
+you must treat any data and metadata on this image as potentially having been
+modified in a malicious manner.  Parsing anything must be done carefully and
+with caution.  Note that many existing tools are not careful in this regard, for
+example, filesystem drivers generally deliberately do not have protection
+against maliciously corrupted filesystems.  This is why in contrast accessing an
+image through libguestfs is considered secure, because the actual access happens
+in a libvirt-managed VM guest.</p>
+
+<p>From this point, we assume you are aware of the security caveats and still want
+to access and manipulate image data on the host.</p>
+
+<p>Now, unless your image is already in raw format, you will be faced with the
+problem of getting it into raw format.  The tools that you might want to use for
+image manipulation generally only work on raw images (because that is how block
+device files appear), like:</p>
+<ul>
+  <li><em>dd</em> to just copy data to and from given offsets,</li>
+  <li><em>parted</em> to manipulate the partition table,</li>
+  <li><em>kpartx</em> to present all partitions as block devices,</li>
+  <li><em>mount</em> to access filesystems’ contents.</li>
+</ul>
+
+<p>So if you want to use such tools on image files e.g. in QEMU’s qcow2 format, you
+will need to translate them into raw images first, for example by:</p>
+<ul>
+  <li>Exporting the image file with <code class="highlighter-rouge">qemu-nbd -c</code> as an NBD block device file,</li>
+  <li>Converting between image formats using <code class="highlighter-rouge">qemu-img convert</code>,</li>
+  <li>Accessing the image from a guest, where it appears as a normal block device.</li>
+</ul>
+
+<p>Unfortunately, none of these methods is perfect: <code class="highlighter-rouge">qemu-nbd -c</code> generally
+requires root rights; converting to a temporary raw copy requires additional
+disk space and the conversion process takes time; and accessing the image from a
+guest is basically what libguestfs does (i.e., if that is what you want, then
+you should probably use libguestfs).</p>
+
+<p>As of QEMU 6.0, there is another method, namely FUSE block exports.
+Conceptually, these are rather similar to using <code class="highlighter-rouge">qemu-nbd -c</code>, but they do not
+require root rights.</p>
+
+<p><strong>Note</strong>: FUSE block exports are a feature that can be enabled or disabled
+during the build process with <code class="highlighter-rouge">--enable-fuse</code> or <code class="highlighter-rouge">--disable-fuse</code>, respectively;
+omitting either configure option will enable the feature if and only if libfuse3
+is present.  It is possible that the QEMU build you are using does not have FUSE
+block export support, because it was not compiled in.</p>
+
+<p>FUSE (<em>Filesystem in Userspace</em>) is a technology to let userspace processes
+provide filesystem drivers.  For example, <em>sshfs</em> is a program that allows
+mounting remote directories from a machine accessible via SSH.</p>
+
+<p>QEMU can use FUSE to make a virtual block device appear as a normal file on the
+host, so that tools like <em>kpartx</em> can interact with it regardless of the image
+format, like in the following example:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ qemu-img create -f raw foo.img 20G
+Formatting 'foo.img', fmt=raw size=21474836480
+
+$ parted -s foo.img \
+    'mklabel msdos' \
+    'mkpart primary ext4 2048s 100%'
+
+$ qemu-img convert -p -f raw -O qcow2 foo.img foo.qcow2 &amp;&amp; rm foo.img
+    (100.00/100%)
+
+$ file foo.qcow2
+foo.qcow2: QEMU QCOW2 Image (v3), 21474836480 bytes
+
+$ sudo kpartx -l foo.qcow2
+
+$ qemu-storage-daemon \
+    --blockdev node-name=prot-node,driver=file,filename=foo.qcow2 \
+    --blockdev node-name=fmt-node,driver=qcow2,file=prot-node \
+    --export \
+    type=fuse,id=exp0,node-name=fmt-node,mountpoint=foo.qcow2,writable=on \
+    &amp;
+[1] 200495
+
+$ file foo.qcow2
+foo.qcow2: DOS/MBR boot sector; partition 1 : ID=0x83, start-CHS (0x10,0,1),
+end-CHS (0x3ff,3,32), startsector 2048, 41940992 sectors
+
+$ sudo kpartx -av foo.qcow2
+add map loop0p1 (254:0): 0 41940992 linear 7:0 2048
+</code></pre></div></div>
+
+<p>In this example, we create a partition on a newly created raw image.  We then
+convert this raw image to qcow2 and discard the original.  Because a tool like
+<em>kpartx</em> cannot parse the qcow2 format, it reports no partitions to be present
+in <code class="highlighter-rouge">foo.qcow2</code>.</p>
+
+<p>Using the QEMU storage daemon, we then create a FUSE export for the image that
+apparently turns it into a raw image, which makes the content and thus the
+partitions visible to <em>file</em> and <em>kpartx</em>.  Now, we can use <em>kpartx</em> to access
+the partition in <code class="highlighter-rouge">foo.qcow2</code> under <code class="highlighter-rouge">/dev/mapper/loop0p1</code>.</p>
+
+<p>So how does this work?  How can the QEMU storage daemon make a qcow2 image
+appear as a raw image?</p>
+
+<h2 id="file-mounts">File mounts</h2>
+
+<p>To transparently translate a file into a different format, like we did above, we
+make use of two little-known facts about filesystems and the VFS on Linux.  The
+first one of these we can explain immediately, for the second one we will need
+some more information about how FUSE exports work, so that secret will be lifted
+later (down in the “Mounting an image on itself” section).</p>
+
+<p>Here is the first secret: Filesystems do not need to have a root directory.
+They only need a root node.  A regular file is a node, so a filesystem that only
+consists of a single regular file is perfectly valid.</p>
+
+<p>Note that this is not about filesystems with just a single file in their root
+directory, but about filesystems that really <em>do not have</em> a root directory.</p>
+
+<p>Conceptually, every filesystem is a tree, and mounting works by replacing one
+subtree of the global VFS tree by the mounted filesystem’s tree.  Normally, a
+filesystem’s root node is a directory, like in the following example:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align: center"><img src="/screenshots/2021-08-18-root-directory.svg" alt="Regular filesystem: Root directory is mounted to a directory mount point" /></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align: center"><em>Fig. 1: Mounting a regular filesystem with a directory as its root node</em></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Here, the directory <code class="highlighter-rouge">/foo</code> and its content (the files <code class="highlighter-rouge">/foo/a</code> and <code class="highlighter-rouge">/foo/b</code>) are
+shadowed by the new filesystem (showing <code class="highlighter-rouge">/foo/x</code> and <code class="highlighter-rouge">/foo/y</code>).</p>
+
+<p>Note that a filesystem’s root node generally has no name.  After mounting, the
+filesystem’s root directory’s name is determined by the original name of the
+mount point.  (“/” is not a name.  It specifically is a directory without a
+name.)</p>
+
+<p>Because a tree does not need to have multiple nodes but may consist of just a
+single leaf, a filesystem with a file for its root node works just as well,
+though:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align: center"><img src="/screenshots/2021-08-18-root-file.svg" alt="Mounting a file root node to a regular file mount point" /></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align: center"><em>Fig. 2: Mounting a filesystem with a regular (unnamed) file as its root node</em></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Here, FS B only consists of a single node, a regular file with no name.  (As
+above, a filesystem’s root node is generally unnamed.) Consequently, the mount
+point for it must also be a regular file (<code class="highlighter-rouge">/foo/a</code> in our example), and just
+like before, the content of <code class="highlighter-rouge">/foo/a</code> is shadowed, and when opening it, one will
+instead see the contents of FS B’s unnamed root node.</p>
+
+<h2 id="qemu-block-exports">QEMU block exports</h2>
+
+<p>Before we can see what FUSE exports are and how they work, we should explore
+QEMU block exports in general.</p>
+
+<p>QEMU allows exporting block nodes via various protocols (as of 6.0: NBD,
+vhost-user, FUSE).  A block node is an element of QEMU’s block graph (see e.g.
+<a href="http://events17.linuxfoundation.org/sites/events/files/slides/talk\_11.pdf">Managing the New Block Layer</a>,
+a talk given at KVM Forum 2017), which can for example be attached to guest
+devices.  Here is a very simple example:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align: center"><img src="/screenshots/2021-08-18-block-graph-a.svg" alt="Block graph: image file &lt;-&gt; file node (label: prot-node) &lt;-&gt; qcow2 node (label: fmt-node) &lt;-&gt; virtio-blk guest device" /></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align: center"><em>Fig. 3: A simple block graph for attaching a qcow2 image to a virtio-blk guest device</em></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>This is the simplest example for a block graph that connects a <em>virtio-blk</em>
+guest device to a qcow2 image file.  The <em>file</em> block driver, instanced in the
+form of a block node named <em>prot-node</em>, accesses the actual file and provides
+the node above it access to the raw content.  This node above, named <em>fmt-node</em>,
+is handled by the <em>qcow2</em> block driver, which is capable of interpreting the
+qcow2 format.  Parents of this node will therefore see the actual content of the
+virtual disk that is represented by the qcow2 image.  There is only one parent
+here, which is the <em>virtio-blk</em> guest device, which will thus see the virtual
+disk.</p>
+
+<p>The command line to achieve the above could look something like this:</p>
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ qemu-system-x86_64 \
+    -blockdev node-name=prot-node,driver=file,filename=$image_path \
+    -blockdev node-name=fmt-node,driver=qcow2,file=prot-node \
+    -device virtio-blk,drive=fmt-node,share-rw=on
+</code></pre></div></div>
+
+<p>Besides attaching guest devices to block nodes, you can also export them for
+users outside of qemu, for example via NBD.  Say you have a QMP channel open for
+the QEMU instance above, then you could do this:</p>
+<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">{</span><span class="w">
+    </span><span class="nl">"execute"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nbd-server-start"</span><span class="p">,</span><span class="w">
+    </span><span class="nl">"arguments"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nl">"addr"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nl">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"inet"</span><span class="p">,</span><span class="w">
+            </span><span class="nl">"data"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="nl">"host"</span><span class="p">:</span><span class="w"> </span><span class="s2">"localhost"</span><span class="p">,</span><span class="w">
+                </span><span class="nl">"port"</span><span class="p">:</span><span class="w"> </span><span class="s2">"10809"</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span><span class="p">{</span><span class="w">
+    </span><span class="nl">"execute"</span><span class="p">:</span><span class="w"> </span><span class="s2">"block-export-add"</span><span class="p">,</span><span class="w">
+    </span><span class="nl">"arguments"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nl">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nbd"</span><span class="p">,</span><span class="w">
+        </span><span class="nl">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"exp0"</span><span class="p">,</span><span class="w">
+        </span><span class="nl">"node-name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"fmt-node"</span><span class="p">,</span><span class="w">
+        </span><span class="nl">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"guest-disk"</span><span class="p">,</span><span class="w">
+        </span><span class="nl">"writable"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre></div></div>
+
+<p>This opens an NBD server on <code class="highlighter-rouge">localhost:10809</code>, which exports <em>fmt-node</em> (under
+the NBD export name <em>guest-disk</em>).  The block graph looks as follows:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align: center"><img src="/screenshots/2021-08-18-block-graph-b.svg" alt="Same block graph as fig. 3, but with an NBD server attached to fmt-node" /></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align: center"><em>Fig. 4: Block graph extended by an NBD server</em></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>NBD clients connecting to this server will see the raw disk as seen by the
+guest – we have <em>exported</em> the guest disk:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ qemu-img info nbd://localhost/guest-disk
+image: nbd://localhost:10809/guest-disk
+file format: raw
+virtual size: 20 GiB (21474836480 bytes)
+disk size: unavailable
+</code></pre></div></div>
+
+<h3 id="qemu-storage-daemon">QEMU storage daemon</h3>
+
+<p>If you are not running a guest, and so do not need guest devices, but all you
+want is to use the QEMU block layer (for example to interpret the qcow2 format)
+and export nodes from the block graph, then you can use the more lightweight
+QEMU storage daemon instead of a full-blown QEMU process:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ qemu-storage-daemon \
+    --blockdev node-name=prot-node,driver=file,filename=$image_path \
+    --blockdev node-name=fmt-node,driver=qcow2,file=prot-node \
+    --nbd-server addr.type=inet,addr.host=localhost,addr.port=10809 \
+    --export \
+    type=nbd,id=exp0,node-name=fmt-node,name=guest-disk,writable=on
+</code></pre></div></div>
+
+<p>Which creates the following block graph:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align: center"><img src="/screenshots/2021-08-18-block-graph-c.svg" alt="Block graph: image file &lt;-&gt; file node (label: prot-node) &lt;-&gt; qcow2 node (label: fmt-node) &lt;-&gt; NBD server" /></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align: center"><em>Fig. 5: Exporting a qcow2 image over NBD</em></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="fuse-block-exports">FUSE block exports</h2>
+
+<p>Besides NBD exports, QEMU also supports vhost-user and FUSE exports.  FUSE block
+exports make QEMU become a FUSE driver that provides a filesystem that consists
+of only a single node, namely a regular file that has the raw contents of the
+exported block node.  QEMU will automatically mount this filesystem on a given
+existing regular file (which acts as the mount point, as described in the
+“File mounts” section).</p>
+
+<p>Thus, FUSE exports can be used like this:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ touch mount-point
+
+$ qemu-storage-daemon \
+  --blockdev node-name=prot-node,driver=file,filename=$image_path \
+  --blockdev node-name=fmt-node,driver=qcow2,file=prot-node \
+  --export \
+  type=fuse,id=exp0,node-name=fmt-node,mountpoint=mount-point,writable=on
+</code></pre></div></div>
+
+<p>The mount point now appears as the raw VM disk that is stored in the qcow2
+image:</p>
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ qemu-img info mount-point
+image: mount-point
+file format: raw
+virtual size: 20 GiB (21474836480 bytes)
+disk size: 196 KiB
+</code></pre></div></div>
+
+<p>And <em>mount</em> tells us that this is indeed its own filesystem:</p>
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ mount | grep mount-point
+/dev/fuse on /tmp/mount-point type fuse (rw,nosuid,nodev,relatime,user_id=1000,
+group_id=100,default_permissions,allow_other,max_read=67108864)
+</code></pre></div></div>
+
+<p>The block graph looks like this:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align: center"><img src="/screenshots/2021-08-18-block-graph-d.svg" alt="Block graph: image file &lt;-&gt; file node (label: prot-node) &lt;-&gt; qcow2 node (label: fmt-node) &lt;-&gt; FUSE server &lt;-&gt; exported file" /></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align: center"><em>Fig. 6: Exporting a qcow2 image over FUSE</em></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Closing the storage daemon (e.g. with Ctrl-C) automatically unmounts the export,
+turning the mount point back into an empty normal file:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ mount | grep -c mount-point
+0
+
+$ qemu-img info mount-point
+image: mount-point
+file format: raw
+virtual size: 0 B (0 bytes)
+disk size: 0 B
+</code></pre></div></div>
+
+<h2 id="mounting-an-image-on-itself">Mounting an image on itself</h2>
+
+<p>So far, we have seen what FUSE exports are, how they work, and how they can be
+used.  However, in the very first example in this blog post, we did not export
+the raw image on some empty regular file that just serves as a mount point – no,
+we turned the original qcow2 image itself into a raw image.</p>
+
+<p>How does that work?</p>
+
+<h3 id="what-happens-to-the-old-tree-under-a-mount-point">What happens to the old tree under a mount point?</h3>
+
+<p>Mounting a filesystem only shadows the mount point’s original content, it does
+not remove it.  The original content can no longer be looked up via its
+(absolute) path, but it is still there, much like a file that has been unlinked
+but is still open in some process.  Here is an example:</p>
+
+<p>First, create some file in some directory, and have some process keep it open:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ mkdir foo
+
+$ echo 'Is anyone there?' &gt; foo/bar
+
+$ irb
+irb(main):001:0&gt; f = File.open('foo/bar', 'r+')
+=&gt; #&lt;File:foo/bar&gt;
+irb(main):002:0&gt; ^Z
+[1]  + 35494 suspended  irb
+</code></pre></div></div>
+
+<p>Next, mount something on the directory:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ sudo mount -t tmpfs tmpfs foo
+</code></pre></div></div>
+
+<p>The file cannot be found anymore (because <em>foo</em>’s content is shadowed by the
+mounted filesystem), but the process who kept it open can still read from it,
+and write to it:</p>
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ ls foo
+
+$ cat foo/bar
+cat: foo/bar: No such file or directory
+
+$ fg
+f.read
+irb(main):002:0&gt; f.read
+=&gt; "Is anyone there?\n"
+irb(main):003:0&gt; f.puts('Hello from the shadows!')
+=&gt; nil
+irb(main):004:0&gt; exit
+
+$ ls foo
+
+$ cat foo/bar
+cat: foo/bar: No such file or directory
+</code></pre></div></div>
+
+<p>Unmounting the filesystem lets us see our file again, with its updated content:</p>
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ sudo umount foo
+
+$ ls foo
+bar
+
+$ cat foo/bar
+Is anyone there?
+Hello from the shadows!
+</code></pre></div></div>
+
+<h3 id="letting-a-fuse-export-shadow-its-image-file">Letting a FUSE export shadow its image file</h3>
+
+<p>The same principle applies to file mounts: The original inode is shadowed (along
+with its content), but it is still there for any process that opened it before
+the mount occurred.  Because QEMU (or the storage daemon) opens the image file
+before mounting the FUSE export, you can therefore specify an image’s path as
+the mount point for its corresponding export:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ qemu-img create -f qcow2 foo.qcow2 20G
+Formatting 'foo.qcow2', fmt=qcow2 cluster_size=65536 extended_l2=off
+ compression_type=zlib size=21474836480 lazy_refcounts=off refcount_bits=16
+
+$ qemu-img info foo.qcow2
+image: foo.qcow2
+file format: qcow2
+virtual size: 20 GiB (21474836480 bytes)
+disk size: 196 KiB
+cluster_size: 65536
+Format specific information:
+    compat: 1.1
+    compression type: zlib
+    lazy refcounts: false
+    refcount bits: 16
+    corrupt: false
+    extended l2: false
+
+$ qemu-storage-daemon --blockdev \
+   node-name=node0,driver=qcow2,file.driver=file,file.filename=foo.qcow2 \
+   --export \
+   type=fuse,id=node0-export,node-name=node0,mountpoint=foo.qcow2,writable=on &amp;
+[1] 40843
+
+$ qemu-img info foo.qcow2
+image: foo.qcow2
+file format: raw
+virtual size: 20 GiB (21474836480 bytes)
+disk size: 196 KiB
+
+$ kill %1
+[1]  + 40843 done       qemu-storage-daemon --blockdev  --export
+</code></pre></div></div>
+
+<p>In graph form, that looks like this:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align: center"><img src="/screenshots/2021-08-18-block-graph-e.svg" alt="Two graphs: First, foo.qcow2 is opened by QEMU; second, a FUSE server exports the raw disk under foo.qcow2, thus shadowing the original foo.qcow2" /></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align: center"><em>Fig. 6: Exporting a qcow2 image via FUSE on its own path</em></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>QEMU (or the storage daemon in this case) keeps the original (qcow2) file open,
+and so it keeps access to it, even after the mount.  However, any other process
+that opens the image by name (i.e. <code class="highlighter-rouge">open("foo.qcow2")</code>) will open the raw disk
+image exported by QEMU.  Therefore, it looks like the qcow2 image is in raw
+format now.</p>
+
+<h3 id="qemu-fuse-disk-exportpy"><em>qemu-fuse-disk-export.py</em></h3>
+
+<p>Because the QEMU storage daemon command line tends to become kind of long, I’ve
+written a script to facilitate the process:
+<a href="https://gitlab.com/hreitz/qemu-scripts/-/blob/main/qemu-fuse-disk-export.py"><em>qemu-fuse-disk-export.py</em></a>
+(<a href="https://gitlab.com/hreitz/qemu-scripts/-/raw/main/qemu-fuse-disk-export.py?inline=false">direct download link</a>).
+This script automatically detects the image format, and its <code class="highlighter-rouge">--daemonize</code> option
+allows safe use in scripts, where it is important that the process blocks until
+the export is fully set up.</p>
+
+<p>Using <em>qemu-fuse-disk-export.py</em>, the above example looks like this:</p>
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ qemu-img info foo.qcow2 | grep 'file format'
+file format: qcow2
+
+$ qemu-fuse-disk-export.py foo.qcow2 &amp;
+[1] 13339
+All exports set up, ^C to revert
+
+$ qemu-img info foo.qcow2 | grep 'file format'
+file format: raw
+
+$ kill -SIGINT %1
+[1]  + 13339 done       qemu-fuse-disk-export.py foo.qcow2
+
+$ qemu-img info foo.qcow2 | grep 'file format'
+file format: qcow2
+</code></pre></div></div>
+
+<p>Or, with <code class="highlighter-rouge">--daemonize</code>/<code class="highlighter-rouge">-d</code>:</p>
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ qemu-img info foo.qcow2 | grep 'file format'
+file format: qcow2
+
+$ qemu-fuse-disk-export.py -dp qfde.pid foo.qcow2
+
+$ qemu-img info foo.qcow2 | grep 'file format'
+file format: raw
+
+$ kill -SIGINT $(cat qfde.pid)
+
+$ qemu-img info foo.qcow2 | grep 'file format'
+file format: qcow2
+</code></pre></div></div>
+
+<h2 id="bringing-it-all-together">Bringing it all together</h2>
+
+<p>Now we know how to make disk images in any format understood by QEMU appear as
+raw images.  We can thus run any application on them that works with such raw
+disk images:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ qemu-fuse-disk-export.py \
+    -dp qfde.pid \
+    Arch-Linux-x86_64-basic-20210711.28787.qcow2
+
+$ parted Arch-Linux-x86_64-basic-20210711.28787.qcow2 p
+WARNING: You are not superuser.  Watch out for permissions.
+Model:  (file)
+Disk /tmp/Arch-Linux-x86_64-basic-20210711.28787.qcow2: 42.9GB
+Sector size (logical/physical): 512B/512B
+Partition Table: gpt
+Disk Flags:
+
+Number  Start   End     Size    File system  Name  Flags
+ 1      1049kB  2097kB  1049kB                     bios_grub
+ 2      2097kB  42.9GB  42.9GB  btrfs
+
+$ sudo kpartx -av Arch-Linux-x86_64-basic-20210711.28787.qcow2
+add map loop0p1 (254:0): 0 2048 linear 7:0 2048
+add map loop0p2 (254:1): 0 83881951 linear 7:0 4096
+
+$ sudo mount /dev/mapper/loop0p2 /mnt/tmp
+
+$ ls /mnt/tmp
+bin   boot  dev  etc  home  lib  lib64  mnt  opt  proc  root  run  sbin  srv
+swap  sys   tmp  usr  var
+
+$ echo 'Hello, qcow2 image!' &gt; /mnt/tmp/home/arch/hello
+
+$ sudo umount /mnt/tmp
+
+$ sudo kpartx -d Arch-Linux-x86_64-basic-20210711.28787.qcow2
+loop deleted : /dev/loop0
+
+$ kill -SIGINT $(cat qfde.pid)
+</code></pre></div></div>
+
+<p>And launching the image, in the guest we see:</p>
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[arch@archlinux ~] cat hello
+Hello, qcow2 image!
+</code></pre></div></div>
+
+<h2 id="a-note-on-allow_other">A note on <code class="highlighter-rouge">allow_other</code></h2>
+
+<p>In the example presented in the above section, we access the exported image with
+a different user than the one who exported it (to be specific, we export it as a
+normal user, and then access it as root).  This does not work prior to QEMU 6.1:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ qemu-fuse-disk-export.py -dp qfde.pid foo.qcow2
+
+$ sudo stat foo.qcow2
+stat: cannot statx 'foo.qcow2': Permission denied
+</code></pre></div></div>
+
+<p>QEMU 6.1 has introduced support for FUSE’s <code class="highlighter-rouge">allow_other</code> mount option.  Without
+that option, only the user who exported the image has access to it.  By default,
+if the system allows for non-root users to add <code class="highlighter-rouge">allow_other</code> to FUSE mount
+options, QEMU will add it, and otherwise omit it.  It does so by simply
+attempting to mount the export with <code class="highlighter-rouge">allow_other</code> first, and if that fails, it
+will try again without.  (You can also force the behavior with the
+<code class="highlighter-rouge">allow_other=(on|off|auto)</code> export parameter.)</p>
+
+<p>Non-root users can pass <code class="highlighter-rouge">allow_other</code> if and only if <code class="highlighter-rouge">/etc/fuse.conf</code> contains
+the <code class="highlighter-rouge">user_allow_other</code> option.</p>
+
+<h2 id="conclusion">Conclusion</h2>
+
+<p>As shown in this blog post, FUSE block exports are a relatively simple way to
+access images in any format understood by QEMU as if they were raw images.
+Any tool that can manipulate raw disk images can thus manipulate images in any
+format, simply by having the QEMU storage daemon provide a translation layer.
+By mounting the FUSE export on the original image path, this translation layer
+will effectively be invisible, and the original image will look like it is in
+raw format, so it can directly be accessed by those tools.</p>
+
+<p>The current main disadvantage of FUSE exports is that they offer relatively bad
+performance.  That should be fine as long as your use case is just light
+manipulation of some VM images, like manually modifying some files on them.
+However, we did not yet really try to optimize performance, so if more serious
+use cases appear that would require better performance, we can try.</p>
+
+		<ul class="category">
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/storage/index.html">storage</a></li>
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/features/index.html">features</a></li>
+		
+		<li><span class="fa fa-folder"></span><a href="/blog/category/tutorials/index.html">tutorials</a></li>
+		
+		</ul>
+	</section>
+
+		</div>
+	</div>
+	
+	
+<!-- Sidebar -->
+<div id="sidebar">
+<div class="container">
+	<section>
+		<header>
+			<h1>Recent Posts</h1>
+		</header>
+		<ul class="style">
+		
+			<li>
+				<a href="../../../../2022/12/15/qemu-7-2-0/">QEMU version 7.2.0 released</a><br/>
+				<span class="posted">15 Dec 2022</span>
+			</li>
+		
+			<li>
+				<a href="../../../../2022/11/17/zoned-emulation/">Introduction to Zoned Storage Emulation</a><br/>
+				<span class="posted">17 Nov 2022</span>
+			</li>
+		
+		</ul>
+	</section>
+
+
+	<section>
+		<header>
+			<h1>Archives</h1>
+		</header>
+		<ul class="style">
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/12/">December 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/11/">November 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/08/">August 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/04/">April 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/03/">March 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2022/02/">February 2022 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/12/">December 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/08/">August 2021 (3)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/04/">April 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/03/">March 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/02/">February 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2021/01/">January 2021 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/12/">December 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/11/">November 2020 (2)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/09/">September 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/08/">August 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/07/">July 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/04/">April 2020 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2020/02/">February 2020 (2)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/12/">December 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/11/">November 2019 (3)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/08/">August 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/05/">May 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/04/">April 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/02/">February 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2019/01/">January 2019 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/12/">December 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/08/">August 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/06/">June 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/05/">May 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/04/">April 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/02/">February 2018 (3)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2018/01/">January 2018 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/11/">November 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/10/">October 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/09/">September 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/08/">August 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/05/">May 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/03/">March 2017 (1)</a></li>
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		<li><a href="../../../../blog/2017/02/">February 2017 (2)</a></li>
+		</ul>
+	</section>
+</div>
+</div>
+
+	<div id="footer">
+	<div id="external-links">
+		<ul class="style">
+			<li><a href="http://qemu-advent-calendar.org">Advent calendar</a></li>
+			<li><a href="https://planet.virt-tools.org/">Blog planet</a></li>
+			<li><a href="https://www.linux-kvm.org/">KVM</a></li>
+			<li><a href="http://libguestfs.org/">Libguestfs</a></li>
+			<li><a href="https://libvirt.org/">Libvirt</a></li>
+			<li><a href="https://xenproject.org">Xen</a></li>
+		</ul>
+	</div>
+	<div id="edit-page">
+		<a href="https://gitlab.com/qemu-project/qemu-web/-/blob/master/_posts/2021-08-22-fuse-blkexport.md">page source</a>
+	</div>
+	<div id="conservancy">
+		QEMU is a member of <a href="../../../../conservancy/">Software Freedom Conservancy</a>
+	</div>
+	<div id="sponsors">
+		QEMU has <a href="../../../../sponsors/">sponsors</a>
+	</div>
+	<div id="licenses">
+		<a href="../../../../license.html">Website licenses</a>
+	</div>
+</div>
+
+
+</body>
+</html>
