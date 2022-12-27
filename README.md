@@ -1,3 +1,20 @@
+Deploying [qemu-web (fork)](https://github.com/QubitPi/qemu-web) to GitHub Pages
+====================================================================================================
+
+[qemu-web](https://github.com/QubitPi/qemu-web) is a standard github-jekyll. Executing
+
+```bash
+bundle exec jekyll build
+```
+
+will generate a gh-pages deployable under **_site** directory.
+
+This fork publishes qemu-web website to `gh-pages` branch under `docs/` directory:
+
+```bash
+mv _site/ docs
+```
+
 QEMU Website
 ============
 
