@@ -3,7 +3,7 @@ title: QEMU documentation
 permalink: /documentation/
 ---
 
-The [main documentation section](https://www.qemu.org/docs/master/)
+The [main documentation section](https://qubitpi.github.io/qemu/)
 is the first place to go in case you have questions about using QEMU.
 
 Most of the documentation is generated automatically from the QEMU git source
